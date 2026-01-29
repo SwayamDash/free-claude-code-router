@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
             from messaging.queue import MessageQueueManager
             from cli.manager import CLISessionManager
 
-            # Setup workspace - CLI should run in allowed_dir
+            # Setup workspace - CLI runs in allowed_dir if set (e.g. project root)
             workspace = (
                 os.path.abspath(settings.allowed_dir)
                 if settings.allowed_dir
@@ -52,11 +52,10 @@ async def lifespan(app: FastAPI):
             )
             os.makedirs(workspace, exist_ok=True)
 
-            # Session data stored separately
+            # Session data (Telegram session, app sessions) stored in .agent_workspace
             data_path = os.path.abspath(settings.claude_workspace)
             os.makedirs(data_path, exist_ok=True)
 
-            # Initialize CLI manager with allowed_dir as workspace
             allowed_dirs = [workspace] if settings.allowed_dir else []
             cli_manager = CLISessionManager(
                 workspace_path=workspace,
@@ -72,7 +71,9 @@ async def lifespan(app: FastAPI):
             message_queue = MessageQueueManager()
 
             # Create Telegram platform
-            messaging_platform = TelegramPlatform()
+            messaging_platform = TelegramPlatform(
+                session_path=os.path.join(data_path, "claude_bot.session")
+            )
 
             # Create and register message handler
             message_handler = ClaudeMessageHandler(
