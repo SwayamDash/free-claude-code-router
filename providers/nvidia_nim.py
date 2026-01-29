@@ -253,6 +253,17 @@ class NvidiaNimProvider(BaseProvider):
             )
             yield sse.content_block_stop(block_idx)
 
+        # Ensure at least one text block exists to avoid "(no content)" in Claude Code
+        # This handles cases where model only returns thinking or empty responses
+        if (
+            not error_occurred
+            and sse.blocks.text_index == -1
+            and not sse.blocks.tool_indices
+        ):
+            for event in sse.ensure_text_block():
+                yield event
+            yield sse.emit_text_delta(" ")  # Single space placeholder
+
         # Close all blocks
         for event in sse.close_all_blocks():
             yield event
