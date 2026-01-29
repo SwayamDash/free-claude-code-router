@@ -259,14 +259,15 @@ class NvidiaNimProvider(BaseProvider):
 
         # Ensure at least some visible content is emitted to avoid "(no content)" in Claude Code
         # Pure thinking blocks might still trigger "(no content)", so we check for text/tools.
-        has_visible_content = sse.accumulated_text and sse.accumulated_text.strip()
+        has_visible_content = (
+            sse.accumulated_text and sse.accumulated_text.strip()
+        ) or sse.blocks.tool_indices
 
         if not has_visible_content:
             # Emit a single space if nothing else was sent
             for event in sse.ensure_text_block():
                 yield event
             yield sse.emit_text_delta(" ")
-            yield sse.stop_text_block()
 
         # Final events
         output_tokens = (
