@@ -1,6 +1,7 @@
 """Pydantic models for API requests and responses."""
 
 import logging
+from enum import Enum
 from typing import List, Dict, Any, Optional, Union, Literal
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -12,6 +13,12 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Content Block Types
 # =============================================================================
+
+
+class Role(str, Enum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"
 
 
 class ContentBlockText(BaseModel):

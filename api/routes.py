@@ -12,6 +12,8 @@ from .models import (
     MessagesRequest,
     MessagesResponse,
     TokenCountRequest,
+    MessagesResponse,
+    TokenCountRequest,
     TokenCountResponse,
     Usage,
 )
@@ -30,6 +32,41 @@ router = APIRouter()
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def is_quota_check_request(request_data: MessagesRequest) -> bool:
+    """Check if this is a quota probe request."""
+    if (
+        request_data.max_tokens == 1
+        and len(request_data.messages) == 1
+        and request_data.messages[0].role == "user"
+    ):
+        content = request_data.messages[0].content
+        # Check string content
+        if isinstance(content, str) and "quota" in content.lower():
+            return True
+        # Check list content
+        elif isinstance(content, list):
+            for block in content:
+                if hasattr(block, "text") and "quota" in block.text.lower():
+                    return True
+    return False
+
+
+def is_title_generation_request(request_data: MessagesRequest) -> bool:
+    """Check if this is a conversation title generation request."""
+    if len(request_data.messages) > 0 and request_data.messages[-1].role == "user":
+        content = request_data.messages[-1].content
+        # Check string content
+        target_phrase = "write a 5-10 word title"
+        if isinstance(content, str) and target_phrase in content.lower():
+            return True
+        # Check list content
+        elif isinstance(content, list):
+            for block in content:
+                if hasattr(block, "text") and target_phrase in block.text.lower():
+                    return True
+    return False
 
 
 def extract_command_prefix(command: str) -> str:
@@ -183,6 +220,32 @@ async def create_message(
                     stop_reason="end_turn",
                     usage=Usage(input_tokens=100, output_tokens=5),
                 )
+
+        # Optimization: Mock network probe/quota requests
+        if settings.enable_network_probe_mock and is_quota_check_request(request_data):
+            logger.info("Optimization: Intercepted and mocked quota probe")
+            return MessagesResponse(
+                id=f"msg_{uuid.uuid4()}",
+                model=request_data.model,
+                role="assistant",
+                content=[{"type": "text", "text": "Quota check passed."}],
+                stop_reason="end_turn",
+                usage=Usage(input_tokens=10, output_tokens=5),
+            )
+
+        # Optimization: Skip title generation requests
+        if settings.enable_title_generation_skip and is_title_generation_request(
+            request_data
+        ):
+            logger.info("Optimization: Skipped title generation request")
+            return MessagesResponse(
+                id=f"msg_{uuid.uuid4()}",
+                model=request_data.model,
+                role="assistant",
+                content=[{"type": "text", "text": "Conversation"}],
+                stop_reason="end_turn",
+                usage=Usage(input_tokens=100, output_tokens=5),
+            )
 
         request_id = f"req_{uuid.uuid4().hex[:12]}"
         log_request_compact(logger, request_id, request_data)
