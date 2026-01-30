@@ -6,6 +6,7 @@ import sys
 # Set mock environment BEFORE any imports that use Settings
 os.environ.setdefault("NVIDIA_NIM_API_KEY", "test_key")
 os.environ.setdefault("MODEL", "test-model")
+os.environ["PTB_TIMEDELTA"] = "1"
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

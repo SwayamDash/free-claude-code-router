@@ -104,6 +104,11 @@ class GlobalRateLimiter:
                             try:
                                 if hasattr(e, "seconds"):
                                     seconds = e.seconds
+                                elif "after " in error_msg:
+                                    # Try to parse "retry after X"
+                                    parts = error_msg.split("after ")
+                                    if len(parts) > 1:
+                                        seconds = int(parts[1].split()[0])
                             except:
                                 pass
 
@@ -115,12 +120,14 @@ class GlobalRateLimiter:
                             )
                         else:
                             logger.error(
-                                f"Error in limiter worker for key {dedup_key}: {e}"
+                                f"Error in limiter worker for key {dedup_key}: {type(e).__name__}: {e}"
                             )
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in limiter worker: {e}", exc_info=True)
+                logger.error(
+                    f"GlobalRateLimiter worker critical error: {e}", exc_info=True
+                )
                 await asyncio.sleep(1)
 
     async def _enqueue_internal(self, func, future, dedup_key, front=False):
@@ -173,11 +180,29 @@ class GlobalRateLimiter:
         future = asyncio.get_event_loop().create_future()
 
         async def _wrapped():
-            try:
-                return await self._enqueue_internal(func, future, dedup_key)
-            except Exception as e:
-                logger.error(f"Error in fire_and_forget for key {dedup_key}: {e}")
-                if not future.done():
-                    future.set_exception(e)
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    return await self.enqueue(func, dedup_key)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    # Only retry transient connectivity issues that might have slipped through
+                    # or occurred between platform checks.
+                    if attempt < max_retries and any(
+                        x in error_msg for x in ["connect", "timeout", "broken"]
+                    ):
+                        wait = 2**attempt
+                        logger.warning(
+                            f"Limiter fire_and_forget transient error (attempt {attempt + 1}): {e}. Retrying in {wait}s..."
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+
+                    logger.error(
+                        f"Final error in fire_and_forget for key {dedup_key}: {type(e).__name__}: {e}"
+                    )
+                    if not future.done():
+                        future.set_exception(e)
+                    break
 
         asyncio.create_task(_wrapped())

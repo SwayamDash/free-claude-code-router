@@ -412,27 +412,30 @@ class ClaudeMessageHandler:
             for err in components["errors"]:
                 lines.append(f"⚠️ **Error:** `{err}`")
 
-        # 6. Status (Bottom)
-        if status:
-            lines.append("")
-            lines.append(status)
+        if not any(lines) and not status:
+            return "⏳ **Claude is working...**"
 
         # Telegram character limit is 4096. We leave buffer for status updates.
         LIMIT = 3900
 
+        # Filter out empty lines first for a clean join
+        lines = [l for l in lines if l]
+
+        # The main content is everything EXCEPT the status if provided
+        # We handle status separately to ensure it's always included
+        main_text = "\n".join(lines)
         status_text = f"\n\n{status}" if status else ""
-        main_text = "\n".join(lines[:-2] if status else lines)
 
         if len(main_text) + len(status_text) <= LIMIT:
             return (
-                "\n".join([l for l in lines if l])
-                if not status
-                else "\n".join([l for l in lines[:-2] if l]) + status_text
+                main_text + status_text
+                if main_text + status_text
+                else "⏳ **Claude is working...**"
             )
 
         # If too long, truncate the main content but keep the status and close code blocks
         available_limit = LIMIT - len(status_text) - 20  # 20 for truncation marker
-        truncated_main = main_text[:available_limit] + "\n... (truncated)"
+        truncated_main = main_text[:available_limit].rstrip() + "\n... (truncated)"
 
         # Close any open code blocks
         if truncated_main.count("```") % 2 != 0:

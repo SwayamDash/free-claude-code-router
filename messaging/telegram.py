@@ -7,6 +7,11 @@ Implements MessagingPlatform for Telegram using python-telegram-bot.
 import asyncio
 import logging
 import os
+
+# Opt-in to future behavior for python-telegram-bot (retry_after as timedelta)
+# This must be set BEFORE importing telegram.error
+os.environ["PTB_TIMEDELTA"] = "1"
+
 from typing import Callable, Awaitable, Optional, Any, Dict
 
 from .base import MessagingPlatform
@@ -144,6 +149,48 @@ class TelegramPlatform(MessagingPlatform):
         self._connected = False
         logger.info("Telegram platform stopped")
 
+    async def _with_retry(
+        self, func: Callable[..., Awaitable[Any]], *args, **kwargs
+    ) -> Any:
+        """Helper to execute a function with exponential backoff on network errors."""
+        max_retries = 3
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                return await func(*args, **kwargs)
+            except (NetworkError, asyncio.TimeoutError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait_time = 2**attempt  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Telegram API network error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"Telegram API failed after {max_retries} attempts: {e}"
+                    )
+                    raise
+            except RetryAfter as e:
+                # Telegram explicitly tells us to wait
+                wait_secs = e.retry_after
+                if hasattr(wait_secs, "total_seconds"):
+                    wait_secs = wait_secs.total_seconds()
+
+                logger.warning(f"Rate limited by Telegram, waiting {wait_secs}s...")
+                await asyncio.sleep(wait_secs)
+                # We don't increment attempt here, as this is a specific instruction
+                return await func(*args, **kwargs)
+            except TelegramError as e:
+                # Non-network Telegram errors
+                if "Message is not modified" in str(e):
+                    return None
+                if "Can't parse entities" in str(e) and kwargs.get("parse_mode"):
+                    logger.warning("Markdown failed, retrying without parse_mode")
+                    kwargs["parse_mode"] = None
+                    return await func(*args, **kwargs)
+                raise
+
     async def send_message(
         self,
         chat_id: str,
@@ -155,33 +202,16 @@ class TelegramPlatform(MessagingPlatform):
         if not self._application:
             raise RuntimeError("Telegram application not initialized")
 
-        try:
+        async def _do_send(mode=parse_mode):
             msg = await self._application.bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 reply_to_message_id=int(reply_to) if reply_to else None,
-                parse_mode=parse_mode,
+                parse_mode=mode,
             )
             return str(msg.message_id)
-        except RetryAfter as e:
-            logger.warning(f"Rate limited by Telegram, retry in {e.retry_after}s")
-            # In a real system, we might sleep, but for now we propagate or let the caller handle
-            raise
-        except TelegramError as e:
-            if "Can't parse entities" in str(e):
-                logger.warning(
-                    f"Markdown failed for message, falling back to plain text: {e}"
-                )
-                # Retry as plain text (no parse_mode)
-                msg = await self._application.bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    reply_to_message_id=int(reply_to) if reply_to else None,
-                    parse_mode=None,
-                )
-                return str(msg.message_id)
-            logger.error(f"Telegram API Error: {e}")
-            raise
+
+        return await self._with_retry(_do_send)
 
     async def edit_message(
         self,
@@ -194,33 +224,15 @@ class TelegramPlatform(MessagingPlatform):
         if not self._application:
             raise RuntimeError("Telegram application not initialized")
 
-        try:
+        async def _do_edit(mode=parse_mode):
             await self._application.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=int(message_id),
                 text=text,
-                parse_mode=parse_mode,
+                parse_mode=mode,
             )
-        except RetryAfter as e:
-            logger.warning(f"Rate limited on edit, retry in {e.retry_after}s")
-            raise
-        except TelegramError as e:
-            if "Message is not modified" in str(e):
-                pass
-            elif "Can't parse entities" in str(e):
-                logger.warning(
-                    f"Markdown failed for edit, falling back to plain text: {e}"
-                )
-                # Retry as plain text
-                await self._application.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=int(message_id),
-                    text=text,
-                    parse_mode=None,
-                )
-            else:
-                logger.error(f"Telegram Edit Error: {e}")
-                raise
+
+        await self._with_retry(_do_edit)
 
     async def queue_send_message(
         self,

@@ -1,6 +1,10 @@
 """FastAPI application factory and configuration."""
 
 import os
+
+# Opt-in to future behavior for python-telegram-bot
+os.environ["PTB_TIMEDELTA"] = "1"
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
