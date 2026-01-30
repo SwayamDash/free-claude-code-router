@@ -77,7 +77,9 @@ async def lifespan(app: FastAPI):
 
             # Wrap with rate limiter
             messaging_platform = RateLimitedPlatform(
-                raw_platform, rps=settings.telegram_rps
+                raw_platform,
+                rate_limit=settings.telegram_rate_limit,
+                rate_window=settings.telegram_rate_window,
             )
 
             # Create and register message handler

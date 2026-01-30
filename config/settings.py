@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
     allowed_telegram_user_id: Optional[str] = None
-    telegram_rps: float = 1.0
+    telegram_rate_limit: int = 20
+    telegram_rate_window: float = 60
     claude_workspace: str = "./agent_workspace"
     allowed_dir: str = ""
     max_cli_sessions: int = 10
