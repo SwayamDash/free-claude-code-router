@@ -1,10 +1,8 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 from messaging.handler import ClaudeMessageHandler
-from messaging.tree_queue import TreeQueueManager
 from messaging.tree_data import MessageState
-from messaging.models import IncomingMessage
 
 
 @pytest.fixture
