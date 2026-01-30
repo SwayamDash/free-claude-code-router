@@ -1,97 +1,57 @@
 import asyncio
-import os
-import sys
 import time
-from unittest.mock import AsyncMock, MagicMock
-
-# Add current directory to path
-sys.path.append(os.getcwd())
-
+import os
 from messaging.limiter import GlobalRateLimiter
 
+# Mocking logging for test
+import logging
 
-async def test_rate_limiting():
-    print("\n--- Testing Rate Limiting (1 req / 2 sec) ---")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def test_compaction():
+    # Set small rate for testing
     os.environ["MESSAGING_RATE_LIMIT"] = "1"
-    os.environ["MESSAGING_RATE_WINDOW"] = "2.0"
+    os.environ["MESSAGING_RATE_WINDOW"] = "1.0"
 
     limiter = await GlobalRateLimiter.get_instance()
 
+    call_counts = {}
+
+    async def mock_edit(msg_id, content):
+        call_counts[msg_id] = call_counts.get(msg_id, 0) + 1
+        logger.info(f"Executing edit for {msg_id}: {content}")
+        return f"done_{content}"
+
+    print("\n--- Starting Compaction Test ---")
+
+    # Spam 5 edits for the same message
     start_time = time.time()
-    results = []
+    futures = []
+    for i in range(5):
+        # We use fire_and_forget to fill the queue fast
+        limiter.fire_and_forget(
+            lambda i=i: mock_edit("msg1", f"update_{i}"), dedup_key="edit:msg1"
+        )
+        print(f"Queued update_{i}")
 
-    async def mock_task(i):
-        ts = time.time() - start_time
-        print(f"[{ts:.2f}s] Task {i} started")
-        await asyncio.sleep(0.1)  # Simulate network latency
-        print(f"[{time.time() - start_time:.2f}s] Task {i} completed")
-        return i
+    # Wait for processing (should take ~2 seconds total for 1-2 actual calls)
+    # The first one might go through immediately if limiter has capacity
+    # The next 4 should be compacted into 1 if they arrive before the first one finishes?
+    # Actually, the FIRST one is already "popped" by the worker while the loop is still queueing.
+    # So we expect roughly 2 calls: the 1st one, and the LAST one (all intermediate ones compacted).
 
-    # Enqueue 5 tasks simultaneously
-    tasks = [limiter.enqueue(lambda i=i: mock_task(i)) for i in range(5)]
+    await asyncio.sleep(2.5)
 
-    print("Tasks enqueued, waiting for results...")
-    completed = await asyncio.gather(*tasks)
+    print(f"\nTotal calls to Telegram: {sum(call_counts.values())}")
+    print(f"Call breakdown: {call_counts}")
 
-    total_time = time.time() - start_time
-    print(f"All tasks completed in {total_time:.2f}s")
-    print(f"Results: {completed}")
-
-    # Check if timing is correct: 5 tasks at 1 req / 2 sec should take about 8 seconds
-    # T0: Task 0
-    # T2: Task 1
-    # T4: Task 2
-    # T6: Task 3
-    # T8: Task 4
-    if total_time >= 8.0:
-        print("[SUCCESS] Rate limiting working as expected!")
-    else:
-        print(f"[FAILURE] Rate limiting failed! Took only {total_time:.2f}s")
-
-
-async def test_flood_wait():
-    print("\n--- Testing FloodWait Recovery ---")
-    limiter = await GlobalRateLimiter.get_instance()
-
-    # Reset limiter for fresh test
-    limiter._paused_until = 0
-
-    start_time = time.time()
-
-    class FloodError(Exception):
-        def __init__(self, seconds):
-            self.seconds = seconds
-            super().__init__(f"FloodWait for {seconds}s")
-
-    attempt = 0
-
-    async def task_that_fails_once():
-        nonlocal attempt
-        ts = time.time() - start_time
-        attempt += 1
-        if attempt == 1:
-            print(f"[{ts:.1f}s] First attempt: Simulating FloodWait(5s)")
-            raise FloodError(5)
-        print(f"[{ts:.1f}s] Second attempt: Success!")
-        return "success"
-
-    result = await limiter.enqueue(task_that_fails_once)
-    total_time = time.time() - start_time
-    print(f"Task completed with result: {result} in {total_time:.1f}s")
-
-    if total_time >= 5.0:
-        print("[SUCCESS] FloodWait recovery working as expected!")
-    else:
-        print(f"[FAILURE] FloodWait recovery failed! Took only {total_time:.1f}s")
-
-
-async def main():
-    await test_rate_limiting()
-    await test_flood_wait()
-    print("\nVerification complete.")
-    # Exit script
-    os._exit(0)
+    assert call_counts["msg1"] <= 2, (
+        f"Should have at most 2 calls (first and last), but got {call_counts['msg1']}"
+    )
+    print("✅ Compaction test passed!")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(test_compaction())

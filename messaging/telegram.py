@@ -201,10 +201,11 @@ class TelegramPlatform(MessagingPlatform):
         async def _edit():
             return await self.edit_message(chat_id, message_id, text, parse_mode)
 
+        dedup_key = f"edit:{chat_id}:{message_id}"
         if fire_and_forget:
-            self._limiter.fire_and_forget(_edit)
+            self._limiter.fire_and_forget(_edit, dedup_key=dedup_key)
         else:
-            await self._limiter.enqueue(_edit)
+            await self._limiter.enqueue(_edit, dedup_key=dedup_key)
 
     def fire_and_forget(self, task: Awaitable[Any]) -> None:
         """Execute a coroutine without awaiting it."""
