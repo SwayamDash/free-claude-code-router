@@ -91,8 +91,9 @@ class TelegramPlatform(MessagingPlatform):
 
         # Send startup notification
         try:
-            # Send message to yourself using the special 'me' entity or chat_id
-            await self.send_message("me", "🚀 **Claude Code Proxy is online!**")
+            # Use allowed_user_id if set, otherwise "me"
+            target = self.allowed_user_id if self.allowed_user_id else "me"
+            await self.send_message(target, "🚀 **Claude Code Proxy is online!**")
         except Exception as e:
             logger.warning(f"Could not send startup message: {e}")
 
@@ -110,8 +111,14 @@ class TelegramPlatform(MessagingPlatform):
         if chat_id in self._entity_cache:
             return self._entity_cache[chat_id]
 
-        # Get entity and cache it
-        entity = await self._client.get_input_entity(peer=int(chat_id))
+        # Handle special IDs like "me"
+        try:
+            peer = int(chat_id)
+            entity = await self._client.get_input_entity(peer=peer)
+        except (ValueError, TypeError):
+            # Probably "me" or a username
+            entity = await self._client.get_input_entity(chat_id)
+
         self._entity_cache[chat_id] = entity
         return entity
 
