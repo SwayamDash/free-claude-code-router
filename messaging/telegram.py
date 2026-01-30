@@ -60,6 +60,7 @@ class TelegramPlatform(MessagingPlatform):
         self._connected = False
         # Cache entity objects to avoid flood wait errors
         self._entity_cache: Dict[str, Any] = {}
+        self._limiter: Optional[GlobalRateLimiter] = None
 
     async def start(self) -> None:
         """Initialize and connect to Telegram."""
@@ -80,15 +81,18 @@ class TelegramPlatform(MessagingPlatform):
         await self._client.start()
         self._connected = True
 
+        # Initialize rate limiter
+        from .limiter import GlobalRateLimiter
+
+        self._limiter = await GlobalRateLimiter.get_instance()
+
         # Run in background
         asyncio.create_task(self._client.run_until_disconnected())
 
         # Send startup notification
         try:
             me_entity = await self._client.get_input_entity("me")
-            await self._client.send_message(
-                me_entity, "🚀 **Claude Code Proxy is online!**"
-            )
+            await self.send_message(me_entity, "🚀 **Claude Code Proxy is online!**")
         except Exception as e:
             logger.warning(f"Could not send startup message: {e}")
 
@@ -105,7 +109,7 @@ class TelegramPlatform(MessagingPlatform):
         """Get entity object for a chat_id, using cache to avoid flood wait errors."""
         if chat_id in self._entity_cache:
             return self._entity_cache[chat_id]
-        
+
         # Get entity and cache it
         entity = await self._client.get_input_entity(peer=int(chat_id))
         self._entity_cache[chat_id] = entity
@@ -160,6 +164,47 @@ class TelegramPlatform(MessagingPlatform):
         except errors.MessageNotModifiedError:
             # Message content unchanged, ignore
             pass
+
+    async def queue_send_message(
+        self,
+        chat_id: str,
+        text: str,
+        reply_to: Optional[str] = None,
+        parse_mode: Optional[str] = None,
+        fire_and_forget: bool = True,
+    ) -> Optional[str]:
+        """Enqueue a message to be sent."""
+        if not self._limiter:
+            return await self.send_message(chat_id, text, reply_to, parse_mode)
+
+        async def _send():
+            return await self.send_message(chat_id, text, reply_to, parse_mode)
+
+        if fire_and_forget:
+            self._limiter.fire_and_forget(_send)
+            return None
+        else:
+            return await self._limiter.enqueue(_send)
+
+    async def queue_edit_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        text: str,
+        parse_mode: Optional[str] = None,
+        fire_and_forget: bool = True,
+    ) -> None:
+        """Enqueue a message edit."""
+        if not self._limiter:
+            return await self.edit_message(chat_id, message_id, text, parse_mode)
+
+        async def _edit():
+            return await self.edit_message(chat_id, message_id, text, parse_mode)
+
+        if fire_and_forget:
+            self._limiter.fire_and_forget(_edit)
+        else:
+            await self._limiter.enqueue(_edit)
 
     def on_message(
         self,

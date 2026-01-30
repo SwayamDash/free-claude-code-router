@@ -66,6 +66,40 @@ class MessagingPlatform(ABC):
         pass
 
     @abstractmethod
+    async def queue_send_message(
+        self,
+        chat_id: str,
+        text: str,
+        reply_to: Optional[str] = None,
+        parse_mode: Optional[str] = None,
+        fire_and_forget: bool = True,
+    ) -> Optional[str]:
+        """
+        Enqueue a message to be sent.
+
+        If fire_and_forget is True, returns None immediately.
+        Otherwise, waits for the rate limiter and returns message ID.
+        """
+        pass
+
+    @abstractmethod
+    async def queue_edit_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        text: str,
+        parse_mode: Optional[str] = None,
+        fire_and_forget: bool = True,
+    ) -> None:
+        """
+        Enqueue a message edit.
+
+        If fire_and_forget is True, returns immediately.
+        Otherwise, waits for the rate limiter.
+        """
+        pass
+
+    @abstractmethod
     def on_message(
         self,
         handler: Callable[[IncomingMessage], Awaitable[None]],
