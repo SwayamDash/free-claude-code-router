@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # ==================== Logging ====================
     log_full_payloads: bool = False
 
+    # ==================== Optimizations ====================
+    enable_network_probe_mock: bool = True
+    enable_title_generation_skip: bool = True
+
     # ==================== NIM Core Parameters ====================
     nvidia_nim_temperature: float = 1.0
     nvidia_nim_top_p: float = 1.0
