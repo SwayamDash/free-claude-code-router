@@ -28,6 +28,11 @@ class RateLimitedPlatform(MessagingPlatform):
         )
 
     @property
+    def rate_window(self) -> float:
+        """Return the rate limit window (period)."""
+        return self._limiter.period
+
+    @property
     def name(self) -> str:
         return f"rate_limited_{self._platform.name}"
 
