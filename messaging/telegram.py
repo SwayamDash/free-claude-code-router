@@ -159,6 +159,8 @@ class TelegramPlatform(MessagingPlatform):
             try:
                 return await func(*args, **kwargs)
             except (NetworkError, asyncio.TimeoutError) as e:
+                if "Message is not modified" in str(e):
+                    return None
                 last_error = e
                 if attempt < max_retries - 1:
                     wait_time = 2**attempt  # 1s, 2s, 4s

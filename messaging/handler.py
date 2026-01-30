@@ -174,6 +174,7 @@ class ClaudeMessageHandler:
         }
 
         last_ui_update = 0.0
+        last_displayed_text = None
         captured_session_id = None
         temp_session_id = None
 
@@ -185,7 +186,7 @@ class ClaudeMessageHandler:
                 logger.info(f"Will fork from parent session: {parent_session_id}")
 
         async def update_ui(status: Optional[str] = None, force: bool = False) -> None:
-            nonlocal last_ui_update
+            nonlocal last_ui_update, last_displayed_text
             now = time.time()
 
             # Small 1s debounce for UI sanity - we still want to avoid
@@ -195,7 +196,8 @@ class ClaudeMessageHandler:
 
             last_ui_update = now
             display = self._build_message(components, status)
-            if display:
+            if display and display != last_displayed_text:
+                last_displayed_text = display
                 # Use queued edit for non-blocking, thread-safe UI updates
                 # Rate limiting and flood wait retries are handled by GlobalRateLimiter
                 await self.platform.queue_edit_message(
