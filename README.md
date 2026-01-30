@@ -28,8 +28,6 @@ NVIDIA_NIM_API_KEY=nvapi-your-key-here
 MODEL=moonshotai/kimi-k2-thinking
 ```
 
-All Claude Code model requests are mapped to `MODEL`.
-
 ---
 
 ### Claude Code
