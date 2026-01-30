@@ -41,7 +41,6 @@ async def lifespan(app: FastAPI):
             from messaging.telegram import TelegramPlatform
             from messaging.handler import ClaudeMessageHandler
             from messaging.session import SessionStore
-            from messaging.rate_limited_platform import RateLimitedPlatform
 
             from cli.manager import CLISessionManager
 
@@ -71,13 +70,8 @@ async def lifespan(app: FastAPI):
             )
 
             # Create Telegram platform
-            raw_platform = TelegramPlatform(
+            messaging_platform = TelegramPlatform(
                 session_path=os.path.join(data_path, "claude_bot.session")
-            )
-
-            # Wrap with rate limiter
-            messaging_platform = RateLimitedPlatform(
-                raw_platform, rps=settings.telegram_rps
             )
 
             # Create and register message handler
