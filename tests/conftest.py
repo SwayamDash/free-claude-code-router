@@ -92,6 +92,10 @@ def incoming_message_factory():
             "platform": "telegram",
         }
         defaults.update(kwargs)
-        return IncomingMessage(**defaults)
+        if "timestamp" in defaults and isinstance(defaults["timestamp"], str):
+            from datetime import datetime
+
+            defaults["timestamp"] = datetime.fromisoformat(defaults["timestamp"])
+        return IncomingMessage(**defaults)  # type: ignore
 
     return _create

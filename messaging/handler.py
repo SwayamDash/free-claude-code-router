@@ -72,14 +72,13 @@ class ClaudeMessageHandler:
         parent_node_id = None
         tree = None
 
-        if incoming.is_reply():
+        if incoming.is_reply() and incoming.reply_to_message_id:
             # Look up if the replied-to message is in any tree (could be a node or status message)
-            tree = self.tree_queue.get_tree_for_node(incoming.reply_to_message_id)
+            reply_id = incoming.reply_to_message_id
+            tree = self.tree_queue.get_tree_for_node(reply_id)
             if tree:
                 # Resolve to actual node ID (handles status message replies)
-                parent_node_id = self.tree_queue.resolve_parent_node_id(
-                    incoming.reply_to_message_id
-                )
+                parent_node_id = self.tree_queue.resolve_parent_node_id(reply_id)
                 if parent_node_id:
                     logger.info(f"Found tree for reply, parent node: {parent_node_id}")
                 else:
@@ -106,7 +105,7 @@ class ClaudeMessageHandler:
         )
 
         # Create or extend tree
-        if parent_node_id and tree:
+        if parent_node_id and tree and status_msg_id:
             # Reply to existing node - add as child
             tree, node = await self.tree_queue.add_to_tree(
                 parent_node_id=parent_node_id,
@@ -118,7 +117,7 @@ class ClaudeMessageHandler:
             self.tree_queue.register_node(status_msg_id, tree.root_id)
             self.session_store.register_node(status_msg_id, tree.root_id)
             self.session_store.register_node(node_id, tree.root_id)
-        else:
+        elif status_msg_id:
             # New conversation - create new tree
             tree = await self.tree_queue.create_tree(
                 node_id=node_id,
@@ -131,7 +130,8 @@ class ClaudeMessageHandler:
             self.session_store.register_node(status_msg_id, tree.root_id)
 
         # Persist tree
-        self.session_store.save_tree(tree.root_id, tree.to_dict())
+        if tree:
+            self.session_store.save_tree(tree.root_id, tree.to_dict())
 
         # Enqueue for processing
         was_queued = await self.tree_queue.enqueue(
@@ -139,7 +139,7 @@ class ClaudeMessageHandler:
             processor=self._process_node,
         )
 
-        if was_queued:
+        if was_queued and status_msg_id:
             # Update status to show queue position
             queue_size = self.tree_queue.get_queue_size(node_id)
             await self.platform.queue_edit_message(
@@ -454,7 +454,7 @@ class ClaudeMessageHandler:
         parent_node_id: Optional[str],
     ) -> str:
         """Get initial status message text."""
-        if tree:
+        if tree and parent_node_id:
             # Reply to existing tree
             if self.tree_queue.is_node_tree_busy(parent_node_id):
                 queue_size = self.tree_queue.get_queue_size(parent_node_id) + 1

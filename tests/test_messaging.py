@@ -3,7 +3,7 @@
 import pytest
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 # --- Existing Tests ---
@@ -125,6 +125,7 @@ class TestSessionStore:
 
         # Verify record updated
         record = store.get_session_record("sess_1")
+        assert record is not None
         assert record.last_msg_id == "msg_2"
 
     def test_update_last_message_unknown_session(self, tmp_path):
@@ -194,7 +195,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=str(tmp_path / "sessions.json"))
 
         # Create an old session manually
-        old_date = (datetime.utcnow() - timedelta(days=40)).isoformat()
+        old_date = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
         store.save_session("old_sess", "c_old", "m_old")
         # Manipulate the created_at directly
         store._sessions["old_sess"].created_at = old_date
@@ -261,6 +262,7 @@ class TestSessionStore:
         store.update_tree_node("r1", "n2", {"data": "test"})
 
         tree = store.get_tree("r1")
+        assert tree is not None
         assert "n2" in tree["nodes"]
         assert tree["nodes"]["n2"]["data"] == "test"
         assert store.get_tree_root_for_node("n2") == "r1"
@@ -286,7 +288,7 @@ class TestSessionStore:
 
         store = SessionStore(storage_path=str(tmp_path / "sessions.json"))
 
-        old_date = (datetime.utcnow() - timedelta(days=40)).isoformat()
+        old_date = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
 
         # Old tree
         store.save_tree(
@@ -296,7 +298,11 @@ class TestSessionStore:
         # New tree
         store.save_tree(
             "new_root",
-            {"nodes": {"new_root": {"created_at": datetime.utcnow().isoformat()}}},
+            {
+                "nodes": {
+                    "new_root": {"created_at": datetime.now(timezone.utc).isoformat()}
+                }
+            },
         )
 
         removed = store.cleanup_old_trees(30)
@@ -334,6 +340,7 @@ class TestSessionStore:
 
         store = SessionStore(storage_path=str(p))
         rec = store.get_session_record("s1")
+        assert rec is not None
 
         assert rec.chat_id == "123"  # Converted to str
         assert rec.platform == "telegram"  # Defaulted

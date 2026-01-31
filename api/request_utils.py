@@ -40,7 +40,8 @@ def is_quota_check_request(request_data: MessagesRequest) -> bool:
         # Check list content
         elif isinstance(content, list):
             for block in content:
-                if hasattr(block, "text") and "quota" in block.text.lower():
+                text = getattr(block, "text", "")
+                if text and isinstance(text, str) and "quota" in text.lower():
                     return True
     return False
 
@@ -66,7 +67,8 @@ def is_title_generation_request(request_data: MessagesRequest) -> bool:
         # Check list content
         elif isinstance(content, list):
             for block in content:
-                if hasattr(block, "text") and target_phrase in block.text.lower():
+                text = getattr(block, "text", "")
+                if text and isinstance(text, str) and target_phrase in text.lower():
                     return True
     return False
 
@@ -159,8 +161,9 @@ def is_prefix_detection_request(request_data: MessagesRequest) -> Tuple[bool, st
         content = msg.content
     elif isinstance(msg.content, list):
         for block in msg.content:
-            if hasattr(block, "text"):
-                content += block.text
+            text = getattr(block, "text", "")
+            if text and isinstance(text, str):
+                content += text
 
     if "<policy_spec>" in content and "Command:" in content:
         try:

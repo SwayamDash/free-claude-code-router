@@ -6,7 +6,7 @@ Contains MessageState, MessageNode, and MessageTree classes.
 import asyncio
 import logging
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List, Any
 from dataclasses import dataclass, field
 
@@ -42,7 +42,7 @@ class MessageNode:
     parent_id: Optional[str] = None  # Parent node ID (None for root)
     session_id: Optional[str] = None  # Claude session ID (forked from parent)
     children_ids: List[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
     context: Any = None  # Additional context if needed
@@ -221,7 +221,7 @@ class MessageTree:
             if error_message:
                 node.error_message = error_message
             if state in (MessageState.COMPLETED, MessageState.ERROR):
-                node.completed_at = datetime.utcnow()
+                node.completed_at = datetime.now(timezone.utc)
 
             logger.debug(f"Node {node_id} state -> {state.value}")
 

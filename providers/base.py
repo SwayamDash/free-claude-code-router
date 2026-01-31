@@ -30,7 +30,8 @@ class BaseProvider(ABC):
         self, request: Any, input_tokens: int = 0
     ) -> AsyncIterator[str]:
         """Stream response in Anthropic SSE format."""
-        pass
+        if False:
+            yield ""
 
     @abstractmethod
     def convert_response(self, response_json: dict, original_request: Any) -> Any:

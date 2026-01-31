@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -22,7 +22,7 @@ class IncomingMessage:
     # Optional fields
     reply_to_message_id: Optional[str] = None
     username: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Platform-specific raw event for edge cases
     raw_event: Any = None

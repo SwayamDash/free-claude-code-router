@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ def log_full_payload(request_id: str, payload: Dict[str, Any]) -> None:
     try:
         handler = _get_debug_handler()
         record = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request_id,
             "payload": payload,
         }

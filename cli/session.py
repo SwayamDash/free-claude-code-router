@@ -4,7 +4,7 @@ import asyncio
 import os
 import json
 import logging
-from typing import AsyncGenerator, Optional, Dict, List
+from typing import AsyncGenerator, Optional, Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ class CLISession:
             logger.debug(f"Non-JSON output: {line_str[:100]}")
             yield {"type": "raw", "content": line_str}
 
-    def _extract_session_id(self, event: Dict) -> Optional[str]:
+    def _extract_session_id(self, event: Any) -> Optional[str]:
         """Extract session ID from CLI event."""
         if not isinstance(event, dict):
             return None

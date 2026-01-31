@@ -115,8 +115,13 @@ class GlobalRateLimiter:
                             logger.error(
                                 f"FloodWait detected! Pausing worker for {seconds}s"
                             )
+                            wait_secs = (
+                                float(seconds)
+                                if isinstance(seconds, (int, float, str))
+                                else 30.0
+                            )
                             self._paused_until = (
-                                asyncio.get_event_loop().time() + seconds
+                                asyncio.get_event_loop().time() + wait_secs
                             )
                         else:
                             logger.error(

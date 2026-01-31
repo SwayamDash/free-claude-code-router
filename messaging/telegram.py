@@ -105,9 +105,10 @@ class TelegramPlatform(MessagingPlatform):
                 await self._application.start()
 
                 # Start polling (non-blocking way for integration)
-                await self._application.updater.start_polling(
-                    drop_pending_updates=False
-                )
+                if self._application.updater:
+                    await self._application.updater.start_polling(
+                        drop_pending_updates=False
+                    )
 
                 self._connected = True
                 break
@@ -141,7 +142,7 @@ class TelegramPlatform(MessagingPlatform):
 
     async def stop(self) -> None:
         """Stop the bot."""
-        if self._application:
+        if self._application and self._application.updater:
             await self._application.updater.stop()
             await self._application.stop()
             await self._application.shutdown()
@@ -175,9 +176,11 @@ class TelegramPlatform(MessagingPlatform):
                     raise
             except RetryAfter as e:
                 # Telegram explicitly tells us to wait
-                wait_secs = e.retry_after
-                if hasattr(wait_secs, "total_seconds"):
-                    wait_secs = wait_secs.total_seconds()
+                retry_after = e.retry_after
+                if hasattr(retry_after, "total_seconds"):
+                    wait_secs = float(retry_after.total_seconds())  # type: ignore
+                else:
+                    wait_secs = float(retry_after)
 
                 logger.warning(f"Rate limited by Telegram, waiting {wait_secs}s...")
                 await asyncio.sleep(wait_secs)
@@ -201,11 +204,12 @@ class TelegramPlatform(MessagingPlatform):
         parse_mode: Optional[str] = "Markdown",
     ) -> str:
         """Send a message to a chat."""
-        if not self._application:
-            raise RuntimeError("Telegram application not initialized")
+        if not self._application or not self._application.bot:
+            raise RuntimeError("Telegram application or bot not initialized")
 
         async def _do_send(mode=parse_mode):
-            msg = await self._application.bot.send_message(
+            bot = self._application.bot  # type: ignore
+            msg = await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 reply_to_message_id=int(reply_to) if reply_to else None,
@@ -223,11 +227,12 @@ class TelegramPlatform(MessagingPlatform):
         parse_mode: Optional[str] = "Markdown",
     ) -> None:
         """Edit an existing message."""
-        if not self._application:
-            raise RuntimeError("Telegram application not initialized")
+        if not self._application or not self._application.bot:
+            raise RuntimeError("Telegram application or bot not initialized")
 
         async def _do_edit(mode=parse_mode):
-            await self._application.bot.edit_message_text(
+            bot = self._application.bot  # type: ignore
+            await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=int(message_id),
                 text=text,
@@ -281,7 +286,10 @@ class TelegramPlatform(MessagingPlatform):
 
     def fire_and_forget(self, task: Awaitable[Any]) -> None:
         """Execute a coroutine without awaiting it."""
-        asyncio.create_task(task)
+        if asyncio.iscoroutine(task):
+            asyncio.create_task(task)  # type: ignore
+        else:
+            asyncio.ensure_future(task)
 
     def on_message(
         self,
@@ -299,7 +307,8 @@ class TelegramPlatform(MessagingPlatform):
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /start command."""
-        await update.message.reply_text("👋 Hello! I am the Claude Code Proxy Bot.")
+        if update.message:
+            await update.message.reply_text("👋 Hello! I am the Claude Code Proxy Bot.")
         # We can also treat this as a message if we want it to trigger something
         await self._on_telegram_message(update, context)
 
@@ -307,7 +316,12 @@ class TelegramPlatform(MessagingPlatform):
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle incoming updates."""
-        if not update.message or not update.message.text:
+        if (
+            not update.message
+            or not update.message.text
+            or not update.effective_user
+            or not update.effective_chat
+        ):
             return
 
         user_id = str(update.effective_user.id)

@@ -8,7 +8,7 @@ and message trees for conversation continuation.
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 from dataclasses import dataclass, asdict
 import threading
@@ -116,7 +116,7 @@ class SessionStore:
     ) -> None:
         """Save a new session mapping."""
         with self._lock:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             record = SessionRecord(
                 session_id=session_id,
                 chat_id=str(chat_id),
@@ -152,7 +152,7 @@ class SessionStore:
 
             record = self._sessions[session_id]
             record.last_msg_id = str(msg_id)
-            record.updated_at = datetime.utcnow().isoformat()
+            record.updated_at = datetime.now(timezone.utc).isoformat()
             new_key = self._make_key(record.platform, record.chat_id, str(msg_id))
             self._msg_to_session[new_key] = session_id
             self._save()
@@ -167,7 +167,7 @@ class SessionStore:
 
             record = self._sessions.pop(old_id)
             record.session_id = new_id
-            record.updated_at = datetime.utcnow().isoformat()
+            record.updated_at = datetime.now(timezone.utc).isoformat()
             self._sessions[new_id] = record
 
             items_to_update = [
@@ -190,7 +190,7 @@ class SessionStore:
     def cleanup_old_sessions(self, max_age_days: int = 30) -> int:
         """Remove sessions older than max_age_days."""
         with self._lock:
-            cutoff = datetime.utcnow()
+            cutoff = datetime.now(timezone.utc)
             removed = 0
 
             to_remove = []
@@ -284,7 +284,7 @@ class SessionStore:
     def cleanup_old_trees(self, max_age_days: int = 30) -> int:
         """Remove trees older than max_age_days."""
         with self._lock:
-            cutoff = datetime.utcnow()
+            cutoff = datetime.now(timezone.utc)
             removed = 0
             to_remove = []
 

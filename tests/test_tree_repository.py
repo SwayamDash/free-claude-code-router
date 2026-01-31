@@ -129,8 +129,9 @@ def test_to_from_dict(repository, sample_tree):
     assert data["node_to_tree"]["root_id"] == "root_id"
 
     new_repo = TreeRepository.from_dict(data)
-    assert new_repo.get_tree("root_id") is not None
-    assert new_repo.get_tree("root_id").root_id == "root_id"
+    tree = new_repo.get_tree("root_id")
+    assert tree is not None
+    assert tree.root_id == "root_id"
     assert new_repo._node_to_tree["root_id"] == "root_id"
 
 

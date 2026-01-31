@@ -4,12 +4,12 @@ Extracted from cli.parser to avoid tight coupling between messaging and cli pack
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
 
-def parse_cli_event(event: Dict) -> List[Dict]:
+def parse_cli_event(event: Any) -> List[Dict]:
     """
     Parse a CLI event and return a structured result.
 

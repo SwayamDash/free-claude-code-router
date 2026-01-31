@@ -1,7 +1,7 @@
 """CLI event parser for Claude Code CLI output."""
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ class CLIParser:
     """Helper to structure raw CLI events."""
 
     @staticmethod
-    def parse_event(event: Dict) -> List[Dict]:
+    def parse_event(event: Any) -> List[Dict]:
         """
         Parse a CLI event and return a structured result.
 

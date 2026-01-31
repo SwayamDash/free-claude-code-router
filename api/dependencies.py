@@ -33,6 +33,8 @@ def get_provider() -> NvidiaNimProvider:
 async def cleanup_provider():
     """Cleanup provider resources."""
     global _provider
-    if _provider and hasattr(_provider, "_client"):
-        await _provider._client.aclose()
+    if _provider:
+        client = getattr(_provider, "_client", None)
+        if client and hasattr(client, "aclose"):
+            await client.aclose()
     _provider = None

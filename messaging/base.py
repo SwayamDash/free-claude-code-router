@@ -1,17 +1,29 @@
 """Abstract base class for messaging platforms."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Awaitable, Optional, Protocol, Tuple, runtime_checkable
+from typing import (
+    Callable,
+    Awaitable,
+    Optional,
+    Protocol,
+    Tuple,
+    runtime_checkable,
+    AsyncGenerator,
+    Any,
+    Dict,
+)
 from .models import IncomingMessage
 
 
-class CLISession(ABC):
-    """Abstract base for CLI session - avoid circular import from cli package."""
+@runtime_checkable
+class CLISession(Protocol):
+    """Protocol for CLI session - avoid circular import from cli package."""
 
-    @abstractmethod
-    async def start_task(self, prompt: str, session_id: Optional[str] = None):
+    def start_task(
+        self, prompt: str, session_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict, Any]:
         """Start a task in the CLI session."""
-        pass
+        ...
 
     @property
     @abstractmethod
@@ -160,6 +172,11 @@ class MessagingPlatform(ABC):
         Args:
             handler: Async function that processes incoming messages
         """
+        pass
+
+    @abstractmethod
+    def fire_and_forget(self, task: Awaitable[Any]) -> None:
+        """Execute a coroutine without awaiting it."""
         pass
 
     @property

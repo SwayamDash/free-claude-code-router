@@ -155,7 +155,9 @@ class TestMessageTree:
         assert child.node_id == "child"
         assert child.parent_id == "root"
         assert "child" in tree.get_root().children_ids
-        assert tree.get_parent("child").node_id == "root"
+        parent = tree.get_parent("child")
+        assert parent is not None
+        assert parent.node_id == "root"
 
     @pytest.mark.asyncio
     async def test_update_state(self):
@@ -171,10 +173,13 @@ class TestMessageTree:
         tree = MessageTree(root)
 
         await tree.update_state("m1", MessageState.IN_PROGRESS)
-        assert tree.get_node("m1").state == MessageState.IN_PROGRESS
+        node = tree.get_node("m1")
+        assert node is not None
+        assert node.state == MessageState.IN_PROGRESS
 
         await tree.update_state("m1", MessageState.COMPLETED, session_id="sess_abc")
         node = tree.get_node("m1")
+        assert node is not None
         assert node.state == MessageState.COMPLETED
         assert node.session_id == "sess_abc"
         assert node.completed_at is not None
@@ -224,7 +229,9 @@ class TestMessageTree:
         restored = MessageTree.from_dict(data)
 
         assert restored.root_id == "m1"
-        assert restored.get_node("m1").session_id == "sess_1"
+        node = restored.get_node("m1")
+        assert node is not None
+        assert node.session_id == "sess_1"
 
 
 class TestTreeQueueManager:
