@@ -25,6 +25,7 @@ wheels/
 .installed.cfg
 *.egg
 .coverage
+.ruff_cache
 
 # Virtual environments
 venv/
