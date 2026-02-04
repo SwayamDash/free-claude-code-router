@@ -15,12 +15,20 @@ from .dependencies import cleanup_provider
 from providers.exceptions import ProviderError
 from config.settings import get_settings
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("server.log", encoding="utf-8", mode="w")],
-)
+# Configure logging (atomic - only on true fresh start)
+LOG_FILE = "server.log"
+
+# Check if logging is already configured (e.g., hot reload)
+# If handlers exist, skip setup to avoid clearing logs mid-session
+if not logging.root.handlers:
+    # Fresh start - clear log file and configure
+    open(LOG_FILE, "w", encoding="utf-8").close()
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8", mode="a")],
+    )
+
 logger = logging.getLogger(__name__)
 
 # Suppress noisy uvicorn logs
