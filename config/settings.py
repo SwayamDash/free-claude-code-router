@@ -15,6 +15,12 @@ NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
+    # ==================== Provider Selection ====================
+    provider_type: str = "nvidia_nim"
+
+    # ==================== Messaging Platform Selection ====================
+    messaging_platform: str = "telegram"
+
     # ==================== NVIDIA NIM Config ====================
     nvidia_nim_api_key: str = ""
 
@@ -65,8 +71,6 @@ class Settings(BaseSettings):
 
     # ==================== Bot Wrapper Config ====================
     telegram_bot_token: Optional[str] = None
-    telegram_api_id: Optional[str] = None  # Deprecated
-    telegram_api_hash: Optional[str] = None  # Deprecated
     allowed_telegram_user_id: Optional[str] = None
     claude_workspace: str = "./agent_workspace"
     allowed_dir: str = ""
@@ -75,6 +79,7 @@ class Settings(BaseSettings):
     # ==================== Server ====================
     host: str = "0.0.0.0"
     port: int = 8082
+    log_file: str = "server.log"
 
     # Handle empty strings for optional int fields
     @field_validator("nvidia_nim_seed", mode="before")
@@ -88,8 +93,6 @@ class Settings(BaseSettings):
     @field_validator(
         "nvidia_nim_stop",
         "telegram_bot_token",
-        "telegram_api_id",
-        "telegram_api_hash",
         "allowed_telegram_user_id",
         mode="before",
     )

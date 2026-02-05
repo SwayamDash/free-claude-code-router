@@ -4,6 +4,29 @@ from api.dependencies import get_provider, get_settings, cleanup_provider
 from providers.nvidia_nim import NvidiaNimProvider
 
 
+def _make_mock_settings(**overrides):
+    """Create a mock settings object with all required fields for get_provider()."""
+    mock = MagicMock()
+    mock.provider_type = "nvidia_nim"
+    mock.nvidia_nim_api_key = "test_key"
+    mock.nvidia_nim_base_url = None
+    mock.nvidia_nim_rate_limit = 40
+    mock.nvidia_nim_rate_window = 60
+    mock.nvidia_nim_temperature = 0.6
+    mock.nvidia_nim_top_p = 0.95
+    mock.nvidia_nim_max_tokens = 16000
+    mock.nvidia_nim_top_k = -1
+    mock.nvidia_nim_presence_penalty = 0.0
+    mock.nvidia_nim_frequency_penalty = 0.0
+    mock.nvidia_nim_min_p = 0.0
+    mock.nvidia_nim_repetition_penalty = 1.0
+    mock.nvidia_nim_seed = None
+    mock.nvidia_nim_stop = None
+    for key, value in overrides.items():
+        setattr(mock, key, value)
+    return mock
+
+
 @pytest.fixture(autouse=True)
 def reset_provider():
     """Reset the global _provider singleton between tests."""
@@ -14,8 +37,7 @@ def reset_provider():
 @pytest.mark.asyncio
 async def test_get_provider_singleton():
     with patch("api.dependencies.get_settings") as mock_settings:
-        mock_settings.return_value = MagicMock()
-        mock_settings.return_value.nvidia_nim_api_key = "test_key"
+        mock_settings.return_value = _make_mock_settings()
 
         p1 = get_provider()
         p2 = get_provider()
@@ -37,8 +59,7 @@ async def test_get_settings():
 @pytest.mark.asyncio
 async def test_cleanup_provider():
     with patch("api.dependencies.get_settings") as mock_settings:
-        mock_settings.return_value = MagicMock()
-        mock_settings.return_value.nvidia_nim_api_key = "test_key"
+        mock_settings.return_value = _make_mock_settings()
 
         provider = get_provider()
         provider._client = AsyncMock()
@@ -46,16 +67,12 @@ async def test_cleanup_provider():
         await cleanup_provider()
 
         provider._client.aclose.assert_called_once()
-        # The singleton should be None now, but since we patched the local _provider
-        # we need to be careful how we verify.
-        # Actually within the same test session without the patch, it would be None.
 
 
 @pytest.mark.asyncio
 async def test_cleanup_provider_no_client():
     with patch("api.dependencies.get_settings") as mock_settings:
-        mock_settings.return_value = MagicMock()
-        mock_settings.return_value.nvidia_nim_api_key = "test_key"
+        mock_settings.return_value = _make_mock_settings()
 
         provider = get_provider()
         if hasattr(provider, "_client"):
@@ -63,3 +80,13 @@ async def test_cleanup_provider_no_client():
 
         await cleanup_provider()
         # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_get_provider_unknown_type():
+    """Test that unknown provider_type raises ValueError."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(provider_type="unknown")
+
+        with pytest.raises(ValueError, match="Unknown provider_type"):
+            get_provider()

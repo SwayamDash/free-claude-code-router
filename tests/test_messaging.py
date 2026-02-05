@@ -43,26 +43,6 @@ class TestMessagingModels:
         assert msg.is_reply() is True
         assert msg.reply_to_message_id == "100"
 
-    def test_outgoing_message_creation(self):
-        """Test OutgoingMessage dataclass."""
-        from messaging.models import OutgoingMessage
-
-        msg = OutgoingMessage(
-            text="Response",
-            chat_id="123",
-            parse_mode="markdown",
-        )
-        assert msg.text == "Response"
-        assert msg.parse_mode == "markdown"
-        assert msg.edit_message_id is None
-
-    def test_message_context(self):
-        """Test MessageContext dataclass."""
-        from messaging.models import MessageContext
-
-        ctx = MessageContext(session_id="sess123", is_new_session=False)
-        assert ctx.session_id == "sess123"
-        assert ctx.is_new_session is False
 
 
 class TestMessagingBase:

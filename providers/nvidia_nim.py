@@ -1,5 +1,4 @@
 import logging
-import os
 import json
 import uuid
 from typing import Any, AsyncIterator
@@ -38,13 +37,13 @@ class NvidiaNimProvider(
 
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
-        self._api_key = config.api_key or os.getenv("NVIDIA_NIM_API_KEY", "")
-        self._base_url = (
-            config.base_url
-            or os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
-        ).rstrip("/")
-        self._nim_params = self._load_nim_params()
-        self._global_rate_limiter = GlobalRateLimiter.get_instance()
+        self._api_key = config.api_key
+        self._base_url = (config.base_url or "https://integrate.api.nvidia.com/v1").rstrip("/")
+        self._nim_params = config.extra_params.copy() if config.extra_params else {}
+        self._global_rate_limiter = GlobalRateLimiter.get_instance(
+            rate_limit=config.rate_limit,
+            rate_window=config.rate_window,
+        )
         self._client = AsyncOpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
@@ -249,7 +248,6 @@ class NvidiaNimProvider(
             tc: Tool call delta info dict
             sse: SSEBuilder instance
         """
-        import uuid
 
         tc_index = tc.get("index", 0)
         if tc_index < 0:

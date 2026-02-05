@@ -9,36 +9,36 @@ import logging
 os.environ["MESSAGING_RATE_LIMIT"] = "1"
 os.environ["MESSAGING_RATE_WINDOW"] = "0.5"
 
-from messaging.limiter import GlobalRateLimiter
+from messaging.limiter import MessagingRateLimiter
 
 # Configure logging for tests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class TestGlobalRateLimiter:
-    """Tests for GlobalRateLimiter."""
+class TestMessagingRateLimiter:
+    """Tests for MessagingRateLimiter."""
 
     @pytest_asyncio.fixture(autouse=True)
     async def reset_limiter(self):
         """Reset singleton and environment before each test."""
         # Reset the singleton manually if needed (although __init__ protection exists)
-        if GlobalRateLimiter._instance:
+        if MessagingRateLimiter._instance:
             # Stop worker if possible or just reset instance
             pass
-        GlobalRateLimiter._instance = None
+        MessagingRateLimiter._instance = None
         os.environ["MESSAGING_RATE_LIMIT"] = "1"
         os.environ["MESSAGING_RATE_WINDOW"] = "0.5"
 
         yield
 
-        GlobalRateLimiter._instance = None
+        MessagingRateLimiter._instance = None
 
     @pytest.mark.asyncio
     async def test_singleton_pattern(self):
         """Test that get_instance returns the same object."""
-        limiter1 = await GlobalRateLimiter.get_instance()
-        limiter2 = await GlobalRateLimiter.get_instance()
+        limiter1 = await MessagingRateLimiter.get_instance()
+        limiter2 = await MessagingRateLimiter.get_instance()
         assert limiter1 is limiter2
 
     @pytest.mark.asyncio
@@ -52,8 +52,8 @@ class TestGlobalRateLimiter:
         os.environ["MESSAGING_RATE_WINDOW"] = "1.0"
 
         # Must reset instance to pick up new env vars
-        GlobalRateLimiter._instance = None
-        limiter = await GlobalRateLimiter.get_instance()
+        MessagingRateLimiter._instance = None
+        limiter = await MessagingRateLimiter.get_instance()
 
         call_counts = {}
 
@@ -85,8 +85,8 @@ class TestGlobalRateLimiter:
         """
         os.environ["MESSAGING_RATE_LIMIT"] = "1"
         os.environ["MESSAGING_RATE_WINDOW"] = "0.5"
-        GlobalRateLimiter._instance = None
-        limiter = await GlobalRateLimiter.get_instance()
+        MessagingRateLimiter._instance = None
+        limiter = await MessagingRateLimiter.get_instance()
 
         call_counts = {}
         msg_id = "test_msg_hang"
@@ -121,8 +121,8 @@ class TestGlobalRateLimiter:
     @pytest.mark.asyncio
     async def test_flood_wait_handling(self):
         """Test that FloodWait exceptions pause the worker."""
-        GlobalRateLimiter._instance = None
-        limiter = await GlobalRateLimiter.get_instance()
+        MessagingRateLimiter._instance = None
+        limiter = await MessagingRateLimiter.get_instance()
 
         # Mock exception with .seconds attribute
         class FloodWait(Exception):

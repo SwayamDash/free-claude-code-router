@@ -14,7 +14,7 @@ from aiolimiter import AsyncLimiter
 logger = logging.getLogger(__name__)
 
 
-class GlobalRateLimiter:
+class MessagingRateLimiter:
     """
     A thread-safe global rate limiter for messaging.
 
@@ -22,16 +22,16 @@ class GlobalRateLimiter:
     only the latest version of a message update is processed.
     """
 
-    _instance: Optional["GlobalRateLimiter"] = None
+    _instance: Optional["MessagingRateLimiter"] = None
     _lock = asyncio.Lock()
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             pass
-        return super(GlobalRateLimiter, cls).__new__(cls)
+        return super(MessagingRateLimiter, cls).__new__(cls)
 
     @classmethod
-    async def get_instance(cls) -> "GlobalRateLimiter":
+    async def get_instance(cls) -> "MessagingRateLimiter":
         """Get the singleton instance of the limiter."""
         async with cls._lock:
             if cls._instance is None:
@@ -60,12 +60,12 @@ class GlobalRateLimiter:
         self._paused_until = 0
 
         logger.info(
-            f"GlobalRateLimiter initialized ({rate_limit} req / {rate_window}s with Task Compaction)"
+            f"MessagingRateLimiter initialized ({rate_limit} req / {rate_window}s with Task Compaction)"
         )
 
     async def _worker(self):
         """Background worker that processes queued messaging tasks."""
-        logger.info("GlobalRateLimiter worker started")
+        logger.info("MessagingRateLimiter worker started")
         while True:
             try:
                 # Get a task from the queue
@@ -109,7 +109,7 @@ class GlobalRateLimiter:
                                     parts = error_msg.split("after ")
                                     if len(parts) > 1:
                                         seconds = int(parts[1].split()[0])
-                            except:
+                            except Exception:
                                 pass
 
                             logger.error(
@@ -131,15 +131,11 @@ class GlobalRateLimiter:
                 break
             except Exception as e:
                 logger.error(
-                    f"GlobalRateLimiter worker critical error: {e}", exc_info=True
+                    f"MessagingRateLimiter worker critical error: {e}", exc_info=True
                 )
                 await asyncio.sleep(1)
 
     async def _enqueue_internal(self, func, future, dedup_key, front=False):
-        async def callback(f):
-            # This is just a placeholder to use the same internal logic
-            pass
-
         await self._enqueue_internal_multi(func, [future], dedup_key, front)
 
     async def _enqueue_internal_multi(self, func, futures, dedup_key, front=False):

@@ -3,7 +3,6 @@
 import asyncio
 import time
 import logging
-import os
 from typing import Optional
 from aiolimiter import AsyncLimiter
 
@@ -22,13 +21,10 @@ class GlobalRateLimiter:
 
     _instance: Optional["GlobalRateLimiter"] = None
 
-    def __init__(self):
+    def __init__(self, rate_limit: int = 40, rate_window: float = 60.0):
         # Prevent double initialization in singleton
         if hasattr(self, "_initialized"):
             return
-
-        rate_limit = int(os.getenv("NVIDIA_NIM_RATE_LIMIT", "40"))
-        rate_window = float(os.getenv("NVIDIA_NIM_RATE_WINDOW", "60.0"))
 
         self.limiter = AsyncLimiter(rate_limit, rate_window)
         self._blocked_until: float = 0
@@ -40,10 +36,22 @@ class GlobalRateLimiter:
         )
 
     @classmethod
-    def get_instance(cls) -> "GlobalRateLimiter":
-        """Get or create the singleton instance."""
+    def get_instance(
+        cls,
+        rate_limit: Optional[int] = None,
+        rate_window: Optional[float] = None,
+    ) -> "GlobalRateLimiter":
+        """Get or create the singleton instance.
+
+        Args:
+            rate_limit: Requests per window (only used on first creation)
+            rate_window: Window in seconds (only used on first creation)
+        """
         if cls._instance is None:
-            cls._instance = cls()
+            cls._instance = cls(
+                rate_limit=rate_limit or 40,
+                rate_window=rate_window or 60.0,
+            )
         return cls._instance
 
     @classmethod

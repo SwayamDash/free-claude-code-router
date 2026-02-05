@@ -12,6 +12,20 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 
+def _extract_text_from_content(content) -> str:
+    """Extract concatenated text from message content (str or list of content blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            text = getattr(block, "text", "")
+            if text and isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
 def generate_request_fingerprint(messages: List[Any]) -> str:
     """Generate unique short hash for message content.
 
@@ -42,20 +56,10 @@ def get_last_user_message_preview(messages: List[Any], max_len: int = 100) -> st
     """Extract a preview of the last user message."""
     for msg in reversed(messages):
         if hasattr(msg, "role") and msg.role == "user":
-            content = msg.content
-            if isinstance(content, str):
-                preview = content.replace("\n", " ").replace("\r", "")
+            text = _extract_text_from_content(getattr(msg, "content", ""))
+            if text:
+                preview = text.replace("\n", " ").replace("\r", "")
                 return preview[:max_len] + "..." if len(preview) > max_len else preview
-            elif isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if hasattr(block, "text"):
-                        text_parts.append(block.text)
-                if text_parts:
-                    preview = " ".join(text_parts).replace("\n", " ")
-                    return (
-                        preview[:max_len] + "..." if len(preview) > max_len else preview
-                    )
     return "(no user message)"
 
 

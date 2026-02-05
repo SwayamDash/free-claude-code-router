@@ -16,6 +16,24 @@ logger = logging.getLogger(__name__)
 ENCODER = tiktoken.get_encoding("cl100k_base")
 
 
+def extract_text_from_content(content) -> str:
+    """Extract concatenated text from message content (str or list of content blocks).
+
+    Handles the common pattern of content being either a plain string
+    or a list of content blocks with a .text attribute.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            text = getattr(block, "text", "")
+            if text and isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
 def is_quota_check_request(request_data: MessagesRequest) -> bool:
     """Check if this is a quota probe request.
 
@@ -33,16 +51,9 @@ def is_quota_check_request(request_data: MessagesRequest) -> bool:
         and len(request_data.messages) == 1
         and request_data.messages[0].role == "user"
     ):
-        content = request_data.messages[0].content
-        # Check string content
-        if isinstance(content, str) and "quota" in content.lower():
+        text = extract_text_from_content(request_data.messages[0].content)
+        if "quota" in text.lower():
             return True
-        # Check list content
-        elif isinstance(content, list):
-            for block in content:
-                text = getattr(block, "text", "")
-                if text and isinstance(text, str) and "quota" in text.lower():
-                    return True
     return False
 
 
@@ -59,17 +70,9 @@ def is_title_generation_request(request_data: MessagesRequest) -> bool:
         True if this is a title generation request
     """
     if len(request_data.messages) > 0 and request_data.messages[-1].role == "user":
-        content = request_data.messages[-1].content
-        # Check string content
-        target_phrase = "write a 5-10 word title"
-        if isinstance(content, str) and target_phrase in content.lower():
+        text = extract_text_from_content(request_data.messages[-1].content)
+        if "write a 5-10 word title" in text.lower():
             return True
-        # Check list content
-        elif isinstance(content, list):
-            for block in content:
-                text = getattr(block, "text", "")
-                if text and isinstance(text, str) and target_phrase in text.lower():
-                    return True
     return False
 
 
@@ -155,15 +158,7 @@ def is_prefix_detection_request(request_data: MessagesRequest) -> Tuple[bool, st
     if len(request_data.messages) != 1 or request_data.messages[0].role != "user":
         return False, ""
 
-    msg = request_data.messages[0]
-    content = ""
-    if isinstance(msg.content, str):
-        content = msg.content
-    elif isinstance(msg.content, list):
-        for block in msg.content:
-            text = getattr(block, "text", "")
-            if text and isinstance(text, str):
-                content += text
+    content = extract_text_from_content(request_data.messages[0].content)
 
     if "<policy_spec>" in content and "Command:" in content:
         try:
@@ -189,15 +184,9 @@ def is_suggestion_mode_request(request_data: MessagesRequest) -> bool:
     """
     for msg in request_data.messages:
         if msg.role == "user":
-            content = msg.content
-            target = "[SUGGESTION MODE:"
-            if isinstance(content, str) and target in content:
+            text = extract_text_from_content(msg.content)
+            if "[SUGGESTION MODE:" in text:
                 return True
-            elif isinstance(content, list):
-                for block in content:
-                    text = getattr(block, "text", "")
-                    if text and isinstance(text, str) and target in text:
-                        return True
     return False
 
 
@@ -222,15 +211,7 @@ def is_filepath_extraction_request(
     if request_data.tools:
         return False, "", ""
 
-    msg = request_data.messages[0]
-    content = ""
-    if isinstance(msg.content, str):
-        content = msg.content
-    elif isinstance(msg.content, list):
-        for block in msg.content:
-            text = getattr(block, "text", "")
-            if text and isinstance(text, str):
-                content += text
+    content = extract_text_from_content(request_data.messages[0].content)
 
     # Must have Command: and Output: markers
     if "Command:" not in content or "Output:" not in content:

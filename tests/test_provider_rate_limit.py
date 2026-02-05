@@ -17,11 +17,8 @@ class TestProviderRateLimiter:
 
     @pytest_asyncio.fixture(autouse=True)
     async def reset_limiter(self):
-        """Reset singleton and environment before each test."""
+        """Reset singleton before each test."""
         GlobalRateLimiter.reset_instance()
-        # Defaults
-        os.environ["NVIDIA_NIM_RATE_LIMIT"] = "40"
-        os.environ["NVIDIA_NIM_RATE_WINDOW"] = "60.0"
         yield
         GlobalRateLimiter.reset_instance()
 
@@ -31,13 +28,9 @@ class TestProviderRateLimiter:
         Test proactive throttling using aiolimiter.
         Logic ported from verify_provider_limiter.py
         """
-        # Set limit: 1 request per 0.25 second
-        os.environ["NVIDIA_NIM_RATE_LIMIT"] = "1"
-        os.environ["NVIDIA_NIM_RATE_WINDOW"] = "0.25"
-
-        # Re-init with new limits
+        # Re-init with tight limits: 1 request per 0.25 second
         GlobalRateLimiter.reset_instance()
-        limiter = GlobalRateLimiter.get_instance()
+        limiter = GlobalRateLimiter.get_instance(rate_limit=1, rate_window=0.25)
 
         start_time = time.time()
 

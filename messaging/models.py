@@ -32,33 +32,3 @@ class IncomingMessage:
         return self.reply_to_message_id is not None
 
 
-@dataclass
-class OutgoingMessage:
-    """
-    Platform-agnostic outgoing message.
-
-    The handler creates these, adapters convert to platform-specific format.
-    """
-
-    text: str
-    chat_id: str
-
-    # Optional fields
-    reply_to: Optional[str] = None
-    parse_mode: Optional[str] = "markdown"
-
-    # For editing existing messages
-    edit_message_id: Optional[str] = None
-
-
-@dataclass
-class MessageContext:
-    """
-    Context for message processing.
-
-    Passed to handlers to track state across a conversation.
-    """
-
-    session_id: Optional[str] = None
-    is_new_session: bool = True
-    status_message_id: Optional[str] = None

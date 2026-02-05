@@ -16,7 +16,8 @@ from providers.exceptions import ProviderError
 from config.settings import get_settings
 
 # Configure logging (atomic - only on true fresh start)
-LOG_FILE = "server.log"
+_settings = get_settings()
+LOG_FILE = _settings.log_file
 
 # Check if logging is already configured (e.g., hot reload)
 # If handlers exist, skip setup to avoid clearing logs mid-session
@@ -49,11 +50,18 @@ async def lifespan(app: FastAPI):
     cli_manager = None
 
     try:
-        if settings.telegram_bot_token:
-            from messaging.telegram import TelegramPlatform
+        # Use the messaging factory to create the right platform
+        from messaging.factory import create_messaging_platform
+
+        messaging_platform = create_messaging_platform(
+            platform_type=settings.messaging_platform,
+            bot_token=settings.telegram_bot_token,
+            allowed_user_id=settings.allowed_telegram_user_id,
+        )
+
+        if messaging_platform:
             from messaging.handler import ClaudeMessageHandler
             from messaging.session import SessionStore
-
             from cli.manager import CLISessionManager
 
             # Setup workspace - CLI runs in allowed_dir if set (e.g. project root)
@@ -64,14 +72,15 @@ async def lifespan(app: FastAPI):
             )
             os.makedirs(workspace, exist_ok=True)
 
-            # Session data (Telegram session, app sessions) stored in .agent_workspace
+            # Session data stored in agent_workspace
             data_path = os.path.abspath(settings.claude_workspace)
             os.makedirs(data_path, exist_ok=True)
 
+            api_url = f"http://{settings.host}:{settings.port}/v1"
             allowed_dirs = [workspace] if settings.allowed_dir else []
             cli_manager = CLISessionManager(
                 workspace_path=workspace,
-                api_url="http://localhost:8082/v1",
+                api_url=api_url,
                 allowed_dirs=allowed_dirs,
                 max_sessions=settings.max_cli_sessions,
             )
@@ -79,12 +88,6 @@ async def lifespan(app: FastAPI):
             # Initialize session store
             session_store = SessionStore(
                 storage_path=os.path.join(data_path, "sessions.json")
-            )
-
-            # Create Telegram platform
-            messaging_platform = TelegramPlatform(
-                bot_token=settings.telegram_bot_token,
-                allowed_user_id=settings.allowed_telegram_user_id,
             )
 
             # Create and register message handler
@@ -95,33 +98,33 @@ async def lifespan(app: FastAPI):
             )
 
             # Restore tree state if available
-            if session_store._trees:
+            saved_trees = session_store.get_all_trees()
+            if saved_trees:
                 logger.info(
-                    f"Restoring {len(session_store._trees)} conversation trees..."
+                    f"Restoring {len(saved_trees)} conversation trees..."
                 )
                 from messaging.tree_queue import TreeQueueManager
 
                 message_handler.tree_queue = TreeQueueManager.from_dict(
                     {
-                        "trees": session_store._trees,
-                        "node_to_tree": session_store._node_to_tree,
+                        "trees": saved_trees,
+                        "node_to_tree": session_store.get_node_mapping(),
                     }
                 )
                 # Reconcile restored state - anything PENDING/IN_PROGRESS is lost across restart
                 if message_handler.tree_queue.cleanup_stale_nodes() > 0:
                     # Sync back and save
-                    session_store._trees = message_handler.tree_queue.to_dict()["trees"]
-                    session_store._node_to_tree = message_handler.tree_queue.to_dict()[
-                        "node_to_tree"
-                    ]
-                    session_store._save()
+                    tree_data = message_handler.tree_queue.to_dict()
+                    session_store.sync_from_tree_data(
+                        tree_data["trees"], tree_data["node_to_tree"]
+                    )
 
             # Wire up the handler
             messaging_platform.on_message(message_handler.handle_message)
 
             # Start the platform
             await messaging_platform.start()
-            logger.info("Telegram platform started with message handler")
+            logger.info(f"{messaging_platform.name} platform started with message handler")
 
     except ImportError as e:
         logger.warning(f"Messaging module import error: {e}")

@@ -315,6 +315,10 @@ class TreeQueueManager:
             logger.info(f"Cleaned up {count} stale nodes during startup")
         return count
 
+    def get_tree_count(self) -> int:
+        """Get the number of active message trees."""
+        return len(self._repository._trees)
+
     def register_node(self, node_id: str, root_id: str) -> None:
         """Register a node ID to a tree (for external mapping)."""
         self._repository.register_node(node_id, root_id)

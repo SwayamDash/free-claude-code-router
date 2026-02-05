@@ -1,7 +1,7 @@
 """Platform-agnostic messaging layer."""
 
 from .base import MessagingPlatform, SessionManagerInterface, CLISession
-from .models import IncomingMessage, OutgoingMessage
+from .models import IncomingMessage
 from .handler import ClaudeMessageHandler
 from .session import SessionStore
 from .tree_data import MessageTree, MessageNode, MessageState
@@ -13,7 +13,6 @@ __all__ = [
     "SessionManagerInterface",
     "CLISession",
     "IncomingMessage",
-    "OutgoingMessage",
     "ClaudeMessageHandler",
     "SessionStore",
     "TreeQueueManager",

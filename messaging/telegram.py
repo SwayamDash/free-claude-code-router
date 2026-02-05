@@ -70,7 +70,7 @@ class TelegramPlatform(MessagingPlatform):
             Callable[[IncomingMessage], Awaitable[None]]
         ] = None
         self._connected = False
-        self._limiter: Optional[Any] = None  # Will be GlobalRateLimiter
+        self._limiter: Optional[Any] = None  # Will be MessagingRateLimiter
 
     async def start(self) -> None:
         """Initialize and connect to Telegram."""
@@ -124,9 +124,9 @@ class TelegramPlatform(MessagingPlatform):
                     raise
 
         # Initialize rate limiter
-        from .limiter import GlobalRateLimiter
+        from .limiter import MessagingRateLimiter
 
-        self._limiter = await GlobalRateLimiter.get_instance()
+        self._limiter = await MessagingRateLimiter.get_instance()
 
         # Send startup notification
         try:

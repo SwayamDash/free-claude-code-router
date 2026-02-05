@@ -281,6 +281,25 @@ class SessionStore:
             self._node_to_tree[node_id] = root_id
             self._save()
 
+    def get_all_trees(self) -> Dict[str, dict]:
+        """Get all stored trees (public accessor)."""
+        with self._lock:
+            return dict(self._trees)
+
+    def get_node_mapping(self) -> Dict[str, str]:
+        """Get the node-to-tree mapping (public accessor)."""
+        with self._lock:
+            return dict(self._node_to_tree)
+
+    def sync_from_tree_data(
+        self, trees: Dict[str, dict], node_to_tree: Dict[str, str]
+    ) -> None:
+        """Sync internal tree state from external data and persist."""
+        with self._lock:
+            self._trees = trees
+            self._node_to_tree = node_to_tree
+            self._save()
+
     def cleanup_old_trees(self, max_age_days: int = 30) -> int:
         """Remove trees older than max_age_days."""
         with self._lock:
