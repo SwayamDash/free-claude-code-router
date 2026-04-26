@@ -446,3 +446,62 @@ async def test_stream_response_bad_request_without_reasoning_budget_does_not_ret
     assert mock_create.await_count == 1
     assert any("Invalid request sent to provider" in event for event in events)
     assert any("message_stop" in event for event in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_response_raises_on_upstream_error_when_flag_set(nim_provider):
+    """``raise_on_upstream_error=True`` re-raises upstream failures instead of
+    converting them to in-stream SSE error events. The chain-fallback router
+    in ``api/services.py`` relies on this to detect transient failures and
+    move on to the next entry transparently.
+    """
+    from openai import RateLimitError as OpenAIRateLimitError
+
+    from providers.exceptions import RateLimitError as ProviderRateLimitError
+
+    req = MockRequest()
+    response = Response(
+        status_code=429,
+        request=Request("POST", f"{NVIDIA_NIM_DEFAULT_BASE}/chat/completions"),
+    )
+    upstream_err = OpenAIRateLimitError(
+        "rate limited", response=response, body={"error": {"message": "rate limited"}}
+    )
+
+    with patch.object(
+        nim_provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.side_effect = upstream_err
+
+        with pytest.raises(ProviderRateLimitError):
+            async for _ in nim_provider.stream_response(
+                req, raise_on_upstream_error=True
+            ):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_stream_response_emits_sse_error_when_flag_unset(nim_provider):
+    """Default ``raise_on_upstream_error=False`` keeps the legacy behavior:
+    upstream failures become an SSE error event so the client sees a clean
+    end-of-stream rather than a broken connection.
+    """
+    from openai import RateLimitError as OpenAIRateLimitError
+
+    req = MockRequest()
+    response = Response(
+        status_code=429,
+        request=Request("POST", f"{NVIDIA_NIM_DEFAULT_BASE}/chat/completions"),
+    )
+    upstream_err = OpenAIRateLimitError(
+        "rate limited", response=response, body={"error": {"message": "rate limited"}}
+    )
+
+    with patch.object(
+        nim_provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.side_effect = upstream_err
+
+        events = [e async for e in nim_provider.stream_response(req)]
+
+    assert any("event: message_stop" in e for e in events)

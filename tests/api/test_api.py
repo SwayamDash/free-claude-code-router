@@ -152,6 +152,136 @@ def test_error_fallbacks(client: TestClient):
     mock_provider.stream_response = _mock_stream_response
 
 
+def test_chain_fallback_skips_quenched_first_entry(client: TestClient, monkeypatch):
+    """Multi-entry chain falls through on rate-limit, succeeds on second model."""
+    from config.settings import get_settings
+    from providers.exceptions import RateLimitError
+
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "model_haiku",
+        "nvidia_nim/bad/first|nvidia_nim/good/second",
+    )
+
+    calls: list[str] = []
+
+    async def _selective_stream(request, *args, **kwargs):
+        calls.append(request.model)
+        if request.model == "bad/first":
+            raise RateLimitError("rate limited")
+        yield "event: message_start\ndata: {}\n\n"
+        yield "[DONE]\n\n"
+
+    # monkeypatch ensures the mock is reset even if assertions below fail.
+    # This matters because ``client`` is module-scoped and a leaked mock
+    # would break all subsequent tests in the file.
+    monkeypatch.setattr(mock_provider, "stream_response", _selective_stream)
+    response = client.post(
+        "/v1/messages",
+        json={
+            "model": "claude-haiku-4-20250514",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 5,
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["bad/first", "good/second"], calls
+
+
+def test_chain_fallback_exhausted_propagates_last_error(
+    client: TestClient, monkeypatch
+):
+    """When every entry raises a retryable error, the last error becomes the response.
+
+    The chain walks all entries, quenches each on a retryable failure, and
+    surfaces the final error to the client. FastAPI maps ProviderError to
+    its status_code (429 for RateLimitError).
+    """
+    from config.settings import get_settings
+    from providers.exceptions import RateLimitError
+
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "model_haiku",
+        "nvidia_nim/bad/first|nvidia_nim/bad/second",
+    )
+
+    calls: list[str] = []
+
+    async def _always_fail(request, *args, **kwargs):
+        calls.append(request.model)
+        raise RateLimitError(f"rate limited on {request.model}")
+        yield  # pragma: no cover (unreachable)
+
+    monkeypatch.setattr(mock_provider, "stream_response", _always_fail)
+    response = client.post(
+        "/v1/messages",
+        json={
+            "model": "claude-haiku-4-20250514",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 5,
+            "stream": True,
+        },
+    )
+
+    assert calls == ["bad/first", "bad/second"]
+    assert response.status_code == 429
+    assert response.json()["error"]["type"] == "rate_limit_error"
+
+
+def test_chain_fallback_after_message_start(client: TestClient, monkeypatch):
+    """Error after message_start (typical 401/403/429 from upstream) still falls through.
+
+    Providers yield ``message_start`` unconditionally before contacting the
+    upstream API, so transient errors arrive AFTER one chunk has already
+    been emitted. The chain pump must buffer ``message_start`` and only
+    commit to the response once a non-leading chunk arrives.
+    """
+    from config.settings import get_settings
+    from providers.exceptions import RateLimitError
+
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "model_haiku",
+        "nvidia_nim/bad/first|nvidia_nim/good/second",
+    )
+
+    calls: list[str] = []
+
+    async def _stream_with_late_error(request, *args, **kwargs):
+        calls.append(request.model)
+        # Always emit message_start first (matches real provider behavior),
+        # then raise on the bad model.
+        yield "event: message_start\ndata: {}\n\n"
+        if request.model == "bad/first":
+            raise RateLimitError("upstream 429")
+        yield "event: content_block_start\ndata: {}\n\n"
+        yield "event: message_stop\ndata: {}\n\n"
+
+    monkeypatch.setattr(mock_provider, "stream_response", _stream_with_late_error)
+    response = client.post(
+        "/v1/messages",
+        json={
+            "model": "claude-haiku-4-20250514",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 5,
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["bad/first", "good/second"], calls
+    # The response must come from the second model; buffered message_start
+    # from the first model is discarded.
+    body = b"".join(response.iter_bytes()).decode()
+    assert "content_block_start" in body
+
+
 def test_generic_exception_returns_500(client: TestClient):
     """Non-ProviderError exceptions are caught and returned as HTTPException(500)."""
 

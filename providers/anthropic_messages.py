@@ -277,8 +277,13 @@ class AnthropicMessagesTransport(BaseProvider):
         *,
         request_id: str | None = None,
         thinking_enabled: bool | None = None,
+        raise_on_upstream_error: bool = False,
     ) -> AsyncIterator[str]:
-        """Stream response via a native Anthropic-compatible messages endpoint."""
+        """Stream response via a native Anthropic-compatible messages endpoint.
+
+        See :meth:`BaseProvider.stream_response` for the contract of
+        ``raise_on_upstream_error``.
+        """
         tag = self._provider_name
         req_tag = f" request_id={request_id}" if request_id else ""
         body = self._build_request_body(request, thinking_enabled=thinking_enabled)
@@ -331,6 +336,11 @@ class AnthropicMessagesTransport(BaseProvider):
             except Exception as error:
                 if not isinstance(error, httpx.HTTPStatusError):
                     self._log_stream_transport_error(tag, req_tag, error)
+                if raise_on_upstream_error and not sent_any_event:
+                    if response is not None and not response.is_closed:
+                        await response.aclose()
+                    mapped = map_error(error, rate_limiter=self._global_rate_limiter)
+                    raise mapped from error
                 error_message = self._get_error_message(error, request_id)
 
                 if response is not None and not response.is_closed:

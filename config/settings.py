@@ -92,6 +92,13 @@ def _removed_env_var_message(model_config: Mapping[str, Any]) -> str | None:
     return None
 
 
+# Maximum number of entries allowed in a fallback chain for any MODEL_*
+# slot. Bounds per-request walk cost and quota burn for pathological configs.
+# Five providers (NIM/OpenRouter/DeepSeek/local/cloud-fallback) is more than
+# anyone realistically needs.
+MAX_CHAIN_LENGTH = 8
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -375,19 +382,48 @@ class Settings(BaseSettings):
     @field_validator("model", "model_opus", "model_sonnet", "model_haiku")
     @classmethod
     def validate_model_format(cls, v: str | None) -> str | None:
+        """Validate single model OR pipe-separated fallback chain.
+
+        Each segment must be ``provider/model``. Pipes split a chain that the
+        proxy walks left-to-right when an entry gets quenched (rate-limited
+        or out of credits). Empty segments are dropped, duplicates are
+        deduped while preserving order, and the chain length is capped to
+        bound per-request work in pathological configs.
+        """
         if v is None:
             return None
-        if "/" not in v:
+        segments = [s.strip() for s in v.split("|") if s.strip()]
+        if not segments:
             raise ValueError(
-                f"Model must be prefixed with provider type. "
-                f"Valid providers: {', '.join(SUPPORTED_PROVIDER_IDS)}. "
-                f"Format: provider_type/model/name"
+                "Model value is empty after parsing. Provide at least one "
+                "'provider/model' entry, optionally pipe-separated for fallback."
             )
-        provider = v.split("/", 1)[0]
-        if provider not in SUPPORTED_PROVIDER_IDS:
-            supported = ", ".join(f"'{p}'" for p in SUPPORTED_PROVIDER_IDS)
-            raise ValueError(f"Invalid provider: '{provider}'. Supported: {supported}")
-        return v
+        if len(segments) > MAX_CHAIN_LENGTH:
+            raise ValueError(
+                f"Chain has {len(segments)} entries, exceeds the maximum of "
+                f"{MAX_CHAIN_LENGTH}. A long chain amplifies per-request "
+                f"latency and quota burn; keep it short and meaningful."
+            )
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for seg in segments:
+            if "/" not in seg:
+                raise ValueError(
+                    f"Model segment '{seg}' must be prefixed with provider type. "
+                    f"Valid providers: {', '.join(SUPPORTED_PROVIDER_IDS)}. "
+                    f"Format: provider_type/model/name"
+                )
+            provider = seg.split("/", 1)[0]
+            if provider not in SUPPORTED_PROVIDER_IDS:
+                supported = ", ".join(f"'{p}'" for p in SUPPORTED_PROVIDER_IDS)
+                raise ValueError(
+                    f"Invalid provider in '{seg}': '{provider}'. Supported: {supported}"
+                )
+            if seg in seen:
+                continue
+            seen.add(seg)
+            normalized.append(seg)
+        return "|".join(normalized)
 
     @model_validator(mode="after")
     def check_nvidia_nim_api_key(self) -> Settings:
@@ -418,28 +454,41 @@ class Settings(BaseSettings):
 
     @property
     def provider_type(self) -> str:
-        """Extract provider type from the default model string."""
-        return Settings.parse_provider_type(self.model)
+        """Extract provider type from the first chain entry of the default model."""
+        return Settings.parse_provider_type(self.resolve_model_chain("")[0])
 
     @property
     def model_name(self) -> str:
-        """Extract the actual model name from the default model string."""
-        return Settings.parse_model_name(self.model)
+        """Extract the actual model name from the first chain entry."""
+        return Settings.parse_model_name(self.resolve_model_chain("")[0])
 
-    def resolve_model(self, claude_model_name: str) -> str:
-        """Resolve a Claude model name to the configured provider/model string.
+    def resolve_model_chain(self, claude_model_name: str) -> list[str]:
+        """Return the full ordered chain of provider/model entries for a Claude name.
 
-        Classifies the incoming Claude model (opus/sonnet/haiku) and
-        returns the model-specific override if configured, otherwise the fallback MODEL.
+        Picks the slot (opus/sonnet/haiku) like ``resolve_model``, but returns
+        every fallback entry instead of just the first one. The chain is the
+        source of truth used by the request handler to walk past quenched
+        (rate-limited or out-of-credit) entries.
         """
         name_lower = claude_model_name.lower()
         if "opus" in name_lower and self.model_opus is not None:
-            return self.model_opus
-        if "haiku" in name_lower and self.model_haiku is not None:
-            return self.model_haiku
-        if "sonnet" in name_lower and self.model_sonnet is not None:
-            return self.model_sonnet
-        return self.model
+            raw = self.model_opus
+        elif "haiku" in name_lower and self.model_haiku is not None:
+            raw = self.model_haiku
+        elif "sonnet" in name_lower and self.model_sonnet is not None:
+            raw = self.model_sonnet
+        else:
+            raw = self.model
+        return [seg for seg in (s.strip() for s in raw.split("|")) if seg]
+
+    def resolve_model(self, claude_model_name: str) -> str:
+        """Resolve a Claude model name to the first chain entry.
+
+        Preserves the historical single-string contract. Chain walking and
+        quench-aware selection live in the api layer (``api/services.py``)
+        so this module stays free of runtime dependencies.
+        """
+        return self.resolve_model_chain(claude_model_name)[0]
 
     def resolve_thinking(self, claude_model_name: str) -> bool:
         """Resolve whether thinking is enabled for an incoming Claude model name."""

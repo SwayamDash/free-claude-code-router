@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🤖 Free Claude Code
+# 🤖 Free Claude Code Router
 
-### Use Claude Code CLI & VSCode for free. No Anthropic API key required.
+### Use Claude Code CLI & VSCode for free, with automatic provider fallback. No Anthropic API key required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
@@ -13,6 +13,8 @@
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
 
 A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **LM Studio** (fully local), **llama.cpp** (local with Anthropic endpoints), or **Ollama** (fully local, native Anthropic Messages).
+
+> **Note:** This is an actively maintained fork of [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code). Upstream has not seen activity in a while, so day-to-day fixes and new features (like the fallback-chain routing) ship from this repo. PRs and issues are welcome here; if you want changes upstreamed, feel free to cherry-pick.
 
 [Quick Start](#quick-start) · [Providers](#providers) · [Discord Bot](#discord-bot) · [Configuration](#configuration) · [Development](#development) · [Contributing](#contributing)
 
@@ -33,6 +35,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
 | **6 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, LM Studio (local), llama.cpp (`llama-server`), Ollama         |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
+| **Fallback Chains**        | Pipe-separated `MODEL_*` chains auto-fall through to the next entry on 401 / 429 / 5xx, with TTL-based quench cooldowns |
 | **Thinking Token Support** | Parses `<think>` tags and `reasoning_content` into native Claude thinking blocks                |
 | **Heuristic Tool Parser**  | Models outputting tool calls as text are auto-parsed into structured tool use                   |
 | **Request Optimization**   | 5 categories of trivial API calls intercepted locally, saving quota and latency                 |
@@ -361,11 +364,37 @@ free-claude-code    # starts the server
 
 - **Transparent proxy**: Claude Code sends standard Anthropic API requests; the proxy forwards them to your configured provider
 - **Per-model routing**: Opus / Sonnet / Haiku requests resolve to their model-specific backend, with `MODEL` as fallback
+- **Fallback chains**: Each `MODEL_*` slot accepts a pipe-separated chain (`a|b|c`) walked left-to-right; failed entries are quenched and the next entry is tried transparently. See the dedicated subsection below.
 - **Request optimization**: 5 categories of trivial requests (quota probes, title generation, prefix detection, suggestions, filepath extraction) are intercepted and responded to locally without using API quota
 - **Format handling**: OpenRouter, LM Studio, llama.cpp, and Ollama use native Anthropic Messages endpoints; NIM and DeepSeek use shared OpenAI chat translation
 - **Thinking tokens**: `<think>` tags and `reasoning_content` fields are converted into native Claude thinking blocks when the resolved model's thinking switch is enabled
 
 The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, plus `HEAD`/`OPTIONS` support for the common probe endpoints.
+
+### Fallback chains
+
+Each `MODEL_*` slot can hold a pipe-separated chain of `provider/model` entries. The proxy walks the chain left-to-right per request: if an entry returns a transient error, it's quenched for a cooldown and the next entry is tried transparently. The client never sees the failed attempt.
+
+```dotenv
+MODEL_SONNET="nvidia_nim/qwen/qwen3-coder-480b-a35b-instruct|nvidia_nim/openai/gpt-oss-120b|open_router/google/gemma-4-31b-it:free"
+```
+
+Cooldown table (per model, in-memory):
+
+| Trigger                   | Status codes      | Quench TTL |
+| ------------------------- | ----------------- | ---------- |
+| Auth / quota exhausted    | 401, 403          | 1 h        |
+| Rate limited              | 429               | 60 s       |
+| Server overloaded         | 500/502/503/504/529 | 30 s     |
+| Unrecognized API error    | other 5xx-class   | 15 s       |
+
+Properties worth knowing:
+
+- **Backwards compatible**: a single `provider/model` value behaves exactly as before (no chain).
+- **In-memory only**: quench state lives in the proxy process. It clears on restart and never touches disk, so usage patterns and which models you hit aren't logged anywhere persistent.
+- **Single-entry chains skip quench** so legitimate client retries against your only model aren't refused.
+- **Last live-entry behavior**: when there are no more unquenched entries to try, the proxy falls back to the legacy in-stream SSE error path so the client always sees a clean end-of-stream rather than a torn response.
+- **What triggers fallback**: 401 / 403 / 429 / 5xx (incl. 529). 400 (bad request) and other client errors stay surfaced; retrying with a different model would not help.
 
 ---
 

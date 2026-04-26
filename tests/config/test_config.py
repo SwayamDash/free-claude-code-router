@@ -657,3 +657,28 @@ class TestPerModelMapping:
         assert Settings.parse_model_name("lmstudio/qwen") == "qwen"
         assert Settings.parse_model_name("llamacpp/model") == "model"
         assert Settings.parse_model_name("ollama/llama3.1") == "llama3.1"
+
+    def test_chain_length_cap_enforced(self, monkeypatch):
+        """Chain longer than ``MAX_CHAIN_LENGTH`` is rejected at validation time."""
+        from pydantic import ValidationError
+
+        from config.settings import MAX_CHAIN_LENGTH, Settings
+
+        too_long = "|".join(
+            f"nvidia_nim/vendor/model-{i}" for i in range(MAX_CHAIN_LENGTH + 1)
+        )
+        monkeypatch.setenv("MODEL", too_long)
+        with pytest.raises(ValidationError) as excinfo:
+            Settings()
+        assert "exceeds the maximum" in str(excinfo.value)
+
+    def test_chain_at_cap_accepted(self, monkeypatch):
+        """Chain exactly at the cap is accepted."""
+        from config.settings import MAX_CHAIN_LENGTH, Settings
+
+        at_cap = "|".join(
+            f"nvidia_nim/vendor/model-{i}" for i in range(MAX_CHAIN_LENGTH)
+        )
+        monkeypatch.setenv("MODEL", at_cap)
+        s = Settings()
+        assert len(s.resolve_model_chain("")) == MAX_CHAIN_LENGTH

@@ -113,8 +113,23 @@ class BaseProvider(ABC):
         *,
         request_id: str | None = None,
         thinking_enabled: bool | None = None,
+        raise_on_upstream_error: bool = False,
     ) -> AsyncIterator[str]:
-        """Stream response in Anthropic SSE format."""
+        """Stream response in Anthropic SSE format.
+
+        When ``raise_on_upstream_error`` is True, upstream transport failures
+        that occur **before any chunk has been yielded** propagate as
+        :class:`ProviderError` so the caller can react (e.g. chain-fallback
+        retry to a different model). Failures **after** the first chunk has
+        been yielded are always converted to a graceful in-stream SSE error
+        regardless of the flag, because the HTTP response has already been
+        committed to the client and the stream cannot be retried.
+
+        When False (the default), every transport failure is converted to an
+        in-stream SSE error so clients see a clean end-of-stream.
+        Request-build and parameter validation failures always raise,
+        regardless of the flag.
+        """
         # Typing: abstract async generators need a yield for AsyncIterator[str]
         # inference; this branch is never executed.
         if False:
