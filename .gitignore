@@ -20,3 +20,8 @@ start.sh
 test.sh
 rod/
 
+# Local-only assets and tooling — never commit
+docs/PROMO.md
+docs/*.tape
+*.bak
+
