@@ -7,8 +7,15 @@ __pycache__
 .venv
 agent_workspace
 .env
+.env.*
+!.env.example
 server.log
 debug-*.log
 .coverage
 llama_cache
 .smoke-results
+.DS_Store
+*.fcc.tmp
+start.sh
+test.sh
+

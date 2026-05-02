@@ -1,0 +1,55 @@
+name: Fresh Clone
+
+# Validates that a brand-new clone runs setup.sh cleanly and that quench + setup.sh
+# parse without syntax errors. Catches packaging / installer regressions before
+# they hit users on day-one. Independent of the main test suite (tests.yml).
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fresh-clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          fetch-depth: 1
+
+      - name: Install jq + curl (Ubuntu has these by default; sanity check)
+        run: |
+          command -v curl
+          command -v jq
+
+      - name: Shell syntax check
+        run: |
+          bash -n setup.sh
+          bash -n quench
+
+      - name: Run setup.sh non-interactively
+        env:
+          SKIP_KEY_PROMPT: "1"
+        run: ./setup.sh
+
+      - name: Verify quench parses + reports not-running
+        run: |
+          ./quench status
+          test "$(./quench status)" = "quench: not running"
+
+      - name: Verify .env was created from template
+        run: |
+          test -f .env
+          # .env should exist; .env.example should still be present too
+          test -f .env.example
