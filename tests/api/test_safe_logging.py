@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,7 +33,7 @@ def test_create_message_skips_full_payload_debug_log_by_default():
     )
 
     with patch.object(services_mod.logger, "debug") as mock_debug:
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
     full_payload_calls = [
         c
@@ -59,7 +60,7 @@ def test_create_message_logs_full_payload_when_opt_in():
     )
 
     with patch.object(services_mod.logger, "debug") as mock_debug:
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
     keys = [c.args[0] for c in mock_debug.call_args_list if c.args]
     assert any(k == "FULL_PAYLOAD [{}]: {}" for k in keys)
@@ -118,7 +119,7 @@ def test_create_message_unexpected_error_default_logs_exclude_exception_text():
         patch.object(services_mod.logger, "error") as log_err,
         pytest.raises(HTTPException),
     ):
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
     blob = _flatten_log_calls(log_err)
     assert secret not in blob
@@ -146,7 +147,7 @@ def test_create_message_unexpected_error_always_returns_500():
     )
 
     with pytest.raises(HTTPException) as excinfo:
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
     assert excinfo.value.status_code == 500
 

@@ -658,29 +658,27 @@ class TestPerModelMapping:
         assert Settings.parse_model_name("llamacpp/model") == "model"
         assert Settings.parse_model_name("ollama/llama3.1") == "llama3.1"
 
-    def test_configured_chat_model_refs_collects_unique_models_with_sources(
-        self, monkeypatch
-    ):
-        """Startup validation model collection is limited to configured chat refs."""
-        from config.settings import Settings
+    def test_chain_length_cap_enforced(self, monkeypatch):
+        """Chain longer than ``MAX_CHAIN_LENGTH`` is rejected at validation time."""
+        from pydantic import ValidationError
 
-        monkeypatch.setenv("FCC_SMOKE_MODEL_NVIDIA_NIM", "nvidia_nim/smoke")
-        monkeypatch.setenv("WHISPER_MODEL", "openai/whisper-large-v3")
+        from config.settings import MAX_CHAIN_LENGTH, Settings
+
+        too_long = "|".join(
+            f"nvidia_nim/vendor/model-{i}" for i in range(MAX_CHAIN_LENGTH + 1)
+        )
+        monkeypatch.setenv("MODEL", too_long)
+        with pytest.raises(ValidationError) as excinfo:
+            Settings()
+        assert "exceeds the maximum" in str(excinfo.value)
+
+    def test_chain_at_cap_accepted(self, monkeypatch):
+        """Chain exactly at the cap is accepted."""
+        from config.settings import MAX_CHAIN_LENGTH, Settings
+
+        at_cap = "|".join(
+            f"nvidia_nim/vendor/model-{i}" for i in range(MAX_CHAIN_LENGTH)
+        )
+        monkeypatch.setenv("MODEL", at_cap)
         s = Settings()
-        s.model = "nvidia_nim/fallback"
-        s.model_opus = "open_router/anthropic/claude-opus"
-        s.model_sonnet = "nvidia_nim/fallback"
-        s.model_haiku = None
-
-        refs = s.configured_chat_model_refs()
-
-        assert [ref.model_ref for ref in refs] == [
-            "nvidia_nim/fallback",
-            "open_router/anthropic/claude-opus",
-        ]
-        assert refs[0].provider_id == "nvidia_nim"
-        assert refs[0].model_id == "fallback"
-        assert refs[0].sources == ("MODEL", "MODEL_SONNET")
-        assert refs[1].provider_id == "open_router"
-        assert refs[1].model_id == "anthropic/claude-opus"
-        assert refs[1].sources == ("MODEL_OPUS",)
+        assert len(s.resolve_model_chain("")) == MAX_CHAIN_LENGTH

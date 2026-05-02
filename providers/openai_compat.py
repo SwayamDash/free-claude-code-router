@@ -1,6 +1,6 @@
-"""OpenAI-style chat base for :class:`OpenAIChatTransport` (NIM, etc.).
+"""OpenAI-style chat base for :class:`OpenAIChatTransport` (NIM, DeepSeek, etc.).
 
-``AnthropicMessagesTransport``-based providers (OpenRouter, LM Studio, DeepSeek, …) live
+``AnthropicMessagesTransport``-based providers (OpenRouter, LM Studio, …) live
 in separate modules; do not list them as subclasses of this class.
 """
 
@@ -28,7 +28,6 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
-from providers.model_listing import extract_openai_model_ids
 from providers.rate_limit import GlobalRateLimiter
 
 
@@ -57,7 +56,7 @@ def _iter_heuristic_tool_use_sse(
 
 
 class OpenAIChatTransport(BaseProvider):
-    """Base for OpenAI-compatible ``/chat/completions`` adapters (NIM, …)."""
+    """Base for OpenAI-compatible ``/chat/completions`` adapters (NIM, DeepSeek, …)."""
 
     def __init__(
         self,
@@ -106,11 +105,6 @@ class OpenAIChatTransport(BaseProvider):
         client = getattr(self, "_client", None)
         if client is not None:
             await client.aclose()
-
-    async def list_model_ids(self) -> frozenset[str]:
-        """Return model ids from the provider's OpenAI-compatible models endpoint."""
-        payload = await self._client.models.list()
-        return extract_openai_model_ids(payload, provider_name=self._provider_name)
 
     @abstractmethod
     def _build_request_body(
@@ -218,11 +212,20 @@ class OpenAIChatTransport(BaseProvider):
         *,
         request_id: str | None = None,
         thinking_enabled: bool | None = None,
+        raise_on_upstream_error: bool = False,
     ) -> AsyncIterator[str]:
-        """Stream response in Anthropic SSE format."""
+        """Stream response in Anthropic SSE format.
+
+        See :meth:`BaseProvider.stream_response` for the contract of
+        ``raise_on_upstream_error``.
+        """
         with logger.contextualize(request_id=request_id):
             async for event in self._stream_response_impl(
-                request, input_tokens, request_id, thinking_enabled=thinking_enabled
+                request,
+                input_tokens,
+                request_id,
+                thinking_enabled=thinking_enabled,
+                raise_on_upstream_error=raise_on_upstream_error,
             ):
                 yield event
 
@@ -233,6 +236,7 @@ class OpenAIChatTransport(BaseProvider):
         request_id: str | None,
         *,
         thinking_enabled: bool | None,
+        raise_on_upstream_error: bool = False,
     ) -> AsyncIterator[str]:
         """Shared streaming implementation."""
         tag = self._provider_name
@@ -263,6 +267,14 @@ class OpenAIChatTransport(BaseProvider):
         finish_reason = None
         usage_info = None
 
+        # Tracks whether any upstream-derived event has been yielded after
+        # the leading ``message_start``. Used to decide whether
+        # ``raise_on_upstream_error`` is safe to honor: once real content
+        # has reached the consumer, the response is committed and a
+        # mid-stream raise would tear the SSE protocol; in that case we
+        # fall through to the graceful in-stream SSE error path.
+        upstream_event_yielded = False
+
         async with self._global_rate_limiter.concurrency_slot():
             try:
                 stream, body = await self._create_stream(body)
@@ -286,7 +298,9 @@ class OpenAIChatTransport(BaseProvider):
                     reasoning = getattr(delta, "reasoning_content", None)
                     if thinking_enabled and reasoning:
                         for event in sse.ensure_thinking_block():
+                            upstream_event_yielded = True
                             yield event
+                        upstream_event_yielded = True
                         yield sse.emit_thinking_delta(reasoning)
 
                     # Provider-specific extra reasoning (e.g. OpenRouter reasoning_details)
@@ -295,6 +309,7 @@ class OpenAIChatTransport(BaseProvider):
                         sse,
                         thinking_enabled=thinking_enabled,
                     ):
+                        upstream_event_yielded = True
                         yield event
 
                     # Handle text content
@@ -304,7 +319,9 @@ class OpenAIChatTransport(BaseProvider):
                                 if not thinking_enabled:
                                     continue
                                 for event in sse.ensure_thinking_block():
+                                    upstream_event_yielded = True
                                     yield event
+                                upstream_event_yielded = True
                                 yield sse.emit_thinking_delta(part.content)
                             else:
                                 filtered_text, detected_tools = heuristic_parser.feed(
@@ -313,18 +330,22 @@ class OpenAIChatTransport(BaseProvider):
 
                                 if filtered_text:
                                     for event in sse.ensure_text_block():
+                                        upstream_event_yielded = True
                                         yield event
+                                    upstream_event_yielded = True
                                     yield sse.emit_text_delta(filtered_text)
 
                                 for tool_use in detected_tools:
                                     for event in _iter_heuristic_tool_use_sse(
                                         sse, tool_use
                                     ):
+                                        upstream_event_yielded = True
                                         yield event
 
                     # Handle native tool calls
                     if delta.tool_calls:
                         for event in sse.close_content_blocks():
+                            upstream_event_yielded = True
                             yield event
                         for tc in delta.tool_calls:
                             tc_info = {
@@ -336,6 +357,7 @@ class OpenAIChatTransport(BaseProvider):
                                 },
                             }
                             for event in self._process_tool_call(tc_info, sse):
+                                upstream_event_yielded = True
                                 yield event
 
             except asyncio.CancelledError, GeneratorExit:
@@ -343,6 +365,11 @@ class OpenAIChatTransport(BaseProvider):
             except Exception as e:
                 self._log_stream_transport_error(tag, req_tag, e)
                 mapped_e = map_error(e, rate_limiter=self._global_rate_limiter)
+                # Mirror anthropic_messages: only raise when no upstream event
+                # has been yielded yet. Mid-stream errors fall through to the
+                # graceful in-stream SSE path so the response stays coherent.
+                if raise_on_upstream_error and not upstream_event_yielded:
+                    raise mapped_e from e
                 base_message = user_visible_message_for_mapped_provider_error(
                     mapped_e,
                     provider_name=tag,
@@ -357,13 +384,8 @@ class OpenAIChatTransport(BaseProvider):
                 )
                 for event in sse.close_all_blocks():
                     yield event
-                if sse.blocks.has_emitted_tool_block():
-                    # Avoid a second assistant text block after an emitted tool_use, which
-                    # breaks OpenAI history replay (issue #206) when Claude Code stores it.
-                    yield sse.emit_top_level_error(error_message)
-                else:
-                    for event in sse.emit_error(error_message):
-                        yield event
+                for event in sse.emit_error(error_message):
+                    yield event
                 yield sse.message_delta("end_turn", 1)
                 yield sse.message_stop()
                 return
@@ -397,17 +419,6 @@ class OpenAIChatTransport(BaseProvider):
             for event in sse.ensure_text_block():
                 yield event
             yield sse.emit_text_delta(" ")
-        elif (
-            not has_started_tool
-            and not sse.accumulated_text.strip()
-            and sse.accumulated_reasoning.strip()
-        ):
-            # Some OpenAI-compatible models (e.g. NIM reasoning templates) stream only
-            # ``reasoning_content`` with no ``content``; emit a minimal text block so
-            # clients and smoke ``text_content()`` see a completed assistant message.
-            for event in sse.ensure_text_block():
-                yield event
-            yield sse.emit_text_delta(" ")
 
         for event in self._flush_task_arg_buffers(sse):
             yield event
@@ -415,15 +426,11 @@ class OpenAIChatTransport(BaseProvider):
         for event in sse.close_all_blocks():
             yield event
 
-        completion = (
-            getattr(usage_info, "completion_tokens", None)
-            if usage_info is not None
-            else None
+        output_tokens = (
+            usage_info.completion_tokens
+            if usage_info and hasattr(usage_info, "completion_tokens")
+            else sse.estimate_output_tokens()
         )
-        if isinstance(completion, int):
-            output_tokens = completion
-        else:
-            output_tokens = sse.estimate_output_tokens()
         if usage_info and hasattr(usage_info, "prompt_tokens"):
             provider_input = usage_info.prompt_tokens
             if isinstance(provider_input, int):

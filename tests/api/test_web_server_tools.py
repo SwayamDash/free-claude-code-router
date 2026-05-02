@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -116,7 +117,7 @@ def test_service_rejects_forced_server_tool_on_openai_when_disabled():
         tool_choice={"type": "tool", "name": "web_search"},
     )
     with pytest.raises(InvalidRequestError, match="ENABLE_WEB_SERVER_TOOLS"):
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
 
 @pytest.mark.parametrize(
@@ -584,7 +585,7 @@ def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
     service = ClaudeProxyService(
         settings,
         provider_getter=lambda _: MagicMock(),
-        model_router=FixedProviderModelRouter(settings, "nvidia_nim"),
+        model_router=FixedProviderModelRouter(settings, "deepseek"),
     )
     request = MessagesRequest(
         model="m",
@@ -593,7 +594,7 @@ def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
         tools=[Tool(name="web_search", type="web_search_20250305")],
     )
     with pytest.raises(InvalidRequestError, match="OpenAI Chat upstreams"):
-        service.create_message(request)
+        asyncio.run(service.create_message(request))
 
 
 def test_listed_server_tools_routed_on_open_router() -> None:
@@ -617,5 +618,5 @@ def test_listed_server_tools_routed_on_open_router() -> None:
         messages=[Message(role="user", content="q")],
         tools=[Tool(name="web_search", type="web_search_20250305")],
     )
-    service.create_message(request)
+    asyncio.run(service.create_message(request))
     mock_provider.preflight_stream.assert_called()

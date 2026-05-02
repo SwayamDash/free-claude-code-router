@@ -4,7 +4,6 @@ from .content import extract_text_from_content, get_block_attr, get_block_type
 from .conversion import (
     AnthropicToOpenAIConverter,
     OpenAIConversionError,
-    ReasoningReplayMode,
     build_base_request_body,
 )
 from .errors import (
@@ -27,7 +26,6 @@ __all__ = [
     "ContentType",
     "HeuristicToolParser",
     "OpenAIConversionError",
-    "ReasoningReplayMode",
     "SSEBuilder",
     "ThinkTagParser",
     "append_request_id",

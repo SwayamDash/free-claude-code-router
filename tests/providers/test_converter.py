@@ -6,7 +6,6 @@ from api.models.anthropic import MessagesRequest
 from core.anthropic import (
     AnthropicToOpenAIConverter,
     OpenAIConversionError,
-    ReasoningReplayMode,
     build_base_request_body,
 )
 
@@ -14,10 +13,9 @@ from core.anthropic import (
 
 
 class MockMessage:
-    def __init__(self, role, content, reasoning_content=None):
+    def __init__(self, role, content):
         self.role = role
         self.content = content
-        self.reasoning_content = reasoning_content
 
 
 class MockBlock:
@@ -228,64 +226,20 @@ def test_convert_assistant_message_thinking():
     assert "reasoning_content" not in result[0]
 
 
-def test_convert_assistant_message_thinking_replays_reasoning_content():
-    """Top-level reasoning replay avoids duplicating thinking into content."""
+def test_convert_assistant_message_thinking_include_reasoning_content():
+    """When include_reasoning_content=True, reasoning_content is added."""
     content = [
         MockBlock(type="thinking", thinking="I need to calculate this."),
         MockBlock(type="text", text="The answer is 4."),
     ]
     messages = [MockMessage("assistant", content)]
     result = AnthropicToOpenAIConverter.convert_messages(
-        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+        messages, include_reasoning_content=True
     )
 
     assert len(result) == 1
     assert result[0]["reasoning_content"] == "I need to calculate this."
-    assert result[0]["content"] == "The answer is 4."
-    assert "<think>" not in result[0]["content"]
-
-
-def test_convert_assistant_top_level_reasoning_content_is_preserved():
-    messages = [
-        MockMessage(
-            "assistant",
-            "The answer is 4.",
-            reasoning_content="I need to calculate this.",
-        )
-    ]
-    result = AnthropicToOpenAIConverter.convert_messages(
-        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
-    )
-
-    assert result == [
-        {
-            "role": "assistant",
-            "content": "The answer is 4.",
-            "reasoning_content": "I need to calculate this.",
-        }
-    ]
-
-
-def test_convert_assistant_thinking_tool_use_replays_top_level_reasoning():
-    content = [
-        MockBlock(type="thinking", thinking="I should call the tool."),
-        MockBlock(
-            type="tool_use",
-            id="call_reasoning",
-            name="search",
-            input={"query": "python"},
-        ),
-    ]
-    messages = [MockMessage("assistant", content)]
-    result = AnthropicToOpenAIConverter.convert_messages(
-        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
-    )
-
-    assert len(result) == 1
-    assert result[0]["content"] == ""
-    assert result[0]["reasoning_content"] == "I should call the tool."
-    assert "<think>" not in result[0]["content"]
-    assert result[0]["tool_calls"][0]["id"] == "call_reasoning"
+    assert "<think>" in result[0]["content"]
 
 
 def test_convert_assistant_message_thinking_removed_when_disabled():
@@ -296,28 +250,14 @@ def test_convert_assistant_message_thinking_removed_when_disabled():
     messages = [MockMessage("assistant", content)]
     result = AnthropicToOpenAIConverter.convert_messages(
         messages,
-        reasoning_replay=ReasoningReplayMode.DISABLED,
+        include_thinking=False,
+        include_reasoning_content=True,
     )
 
     assert len(result) == 1
     assert "reasoning_content" not in result[0]
     assert "<think>" not in result[0]["content"]
     assert result[0]["content"] == "The answer is 4."
-
-
-def test_convert_assistant_top_level_reasoning_stripped_when_disabled():
-    messages = [
-        MockMessage(
-            "assistant",
-            "The answer is 4.",
-            reasoning_content="I need to calculate this.",
-        )
-    ]
-    result = AnthropicToOpenAIConverter.convert_messages(
-        messages, reasoning_replay=ReasoningReplayMode.DISABLED
-    )
-
-    assert result == [{"role": "assistant", "content": "The answer is 4."}]
 
 
 def test_convert_assistant_message_tool_use():
@@ -557,7 +497,7 @@ def test_assistant_redacted_thinking_omitted_from_openai_chat():
     ]
     messages = [MockMessage("assistant", content)]
     result = AnthropicToOpenAIConverter.convert_messages(
-        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+        messages, include_thinking=True, include_reasoning_content=True
     )
     assert result[0]["content"] == "Visible."
     assert "secret-opaque" not in result[0]["content"]
@@ -573,44 +513,14 @@ def test_convert_user_message_image_raises():
         AnthropicToOpenAIConverter.convert_messages(messages)
 
 
-def test_convert_assistant_text_after_tool_use_splits_for_openai_chat():
-    """Post-tool_use assistant text is replayed as a second assistant turn (issue 206)."""
+def test_convert_assistant_text_after_tool_use_raises():
     content = [
         MockBlock(type="tool_use", id="call_z", name="Read", input={}),
-        MockBlock(type="text", text="After tool"),
+        MockBlock(type="text", text="Illegal after tool"),
     ]
     messages = [MockMessage("assistant", content)]
-    result = AnthropicToOpenAIConverter.convert_messages(messages)
-    assert len(result) == 2
-    assert result[0]["role"] == "assistant"
-    assert result[0]["tool_calls"][0]["id"] == "call_z"
-    assert result[1] == {"role": "assistant", "content": "After tool"}
-
-
-def test_convert_assistant_text_after_tool_use_inserts_after_tool_results():
-    messages = [
-        MockMessage(
-            "assistant",
-            [
-                MockBlock(type="tool_use", id="call_z", name="Read", input={}),
-                MockBlock(type="text", text="Post-tool commentary"),
-            ],
-        ),
-        MockMessage(
-            "user",
-            [
-                MockBlock(
-                    type="tool_result",
-                    tool_use_id="call_z",
-                    content="file contents",
-                )
-            ],
-        ),
-    ]
-    result = AnthropicToOpenAIConverter.convert_messages(messages)
-    assert result[0]["role"] == "assistant" and "tool_calls" in result[0]
-    assert result[1]["role"] == "tool" and result[1]["tool_call_id"] == "call_z"
-    assert result[2] == {"role": "assistant", "content": "Post-tool commentary"}
+    with pytest.raises(OpenAIConversionError):
+        AnthropicToOpenAIConverter.convert_messages(messages)
 
 
 def test_openai_build_accepts_declared_native_top_level_hints() -> None:
