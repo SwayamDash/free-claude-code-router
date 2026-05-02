@@ -15,7 +15,8 @@ debug-*.log
 llama_cache
 .smoke-results
 .DS_Store
-*.fcc.tmp
+*.quench.tmp
 start.sh
 test.sh
+rod/
 

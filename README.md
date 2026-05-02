@@ -194,7 +194,7 @@ Recommended models on NVIDIA NIM: `qwen/qwen3-coder-480b-a35b-instruct` (coding)
    ```
 4. Reference in chains as `llamacpp/<model_name>`.
 
-![Get API keys in 5 minutes](docs/api-keys.gif)
+> A walkthrough GIF for the per-provider key setup is coming in v0.1.1.
 
 ## 🔄 Fallback Chains and the Quench Registry
 
