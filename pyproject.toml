@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "free-claude-code"
-version = "2.0.0"
-description = "Middleware between Claude Code CLI (Anthropic API) and NVIDIA NIM"
+name = "quench"
+version = "0.1.0"
+description = "Quench — local LLM router that speaks Anthropic protocol. Per-slot pipe-separated fallback chains across NVIDIA NIM, OpenRouter, DeepSeek, LM Studio, llama.cpp, Ollama. Quench cools failing providers and routes around them, transparently."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -25,8 +25,8 @@ dependencies = [
 ]
 
 [project.scripts]
-free-claude-code = "cli.entrypoints:serve"
-fcc-init = "cli.entrypoints:init"
+quench = "cli.entrypoints:serve"
+quench-init = "cli.entrypoints:init"
 
 [project.optional-dependencies]
 voice = [
@@ -110,7 +110,7 @@ markers = [
     "clients: client compatibility checks",
     "voice: voice transcription checks",
     "contract: deterministic feature contract checks",
-    "smoke_target(name): route a smoke test behind FCC_SMOKE_TARGETS",
+    "smoke_target(name): route a smoke test behind QUENCH_SMOKE_TARGETS",
 ]
 
 [tool.ty.environment]

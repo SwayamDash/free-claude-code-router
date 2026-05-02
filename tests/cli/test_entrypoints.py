@@ -1,4 +1,4 @@
-"""Tests for cli/entrypoints.py — fcc-init scaffolding logic."""
+"""Tests for cli/entrypoints.py — quench-init scaffolding logic."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +8,7 @@ def _run_init(tmp_home: Path) -> tuple[str, Path]:
     """Run init() with home directory redirected to tmp_home. Returns (printed output, env_file path)."""
     from cli.entrypoints import init
 
-    env_file = tmp_home / ".config" / "free-claude-code" / ".env"
+    env_file = tmp_home / ".config" / "quench" / ".env"
     printed: list[str] = []
 
     with (
@@ -54,8 +54,8 @@ def test_env_template_loader_uses_root_template_in_source_checkout() -> None:
 
 
 def test_init_creates_parent_directories(tmp_path: Path) -> None:
-    """init() creates ~/.config/free-claude-code/ even if it doesn't exist."""
-    config_dir = tmp_path / ".config" / "free-claude-code"
+    """init() creates ~/.config/quench/ even if it doesn't exist."""
+    config_dir = tmp_path / ".config" / "quench"
     assert not config_dir.exists()
 
     _run_init(tmp_path)
@@ -68,7 +68,7 @@ def test_init_skips_if_env_already_exists(tmp_path: Path) -> None:
     # Create it first
     _run_init(tmp_path)
 
-    env_file = tmp_path / ".config" / "free-claude-code" / ".env"
+    env_file = tmp_path / ".config" / "quench" / ".env"
     env_file.write_text("existing content", encoding="utf-8")
 
     output, _ = _run_init(tmp_path)
@@ -78,7 +78,7 @@ def test_init_skips_if_env_already_exists(tmp_path: Path) -> None:
 
 
 def test_init_prints_next_step_hint(tmp_path: Path) -> None:
-    """init() tells the user to run free-claude-code after editing .env."""
+    """init() tells the user to run quench after editing .env."""
     output, _ = _run_init(tmp_path)
 
-    assert "free-claude-code" in output
+    assert "quench" in output

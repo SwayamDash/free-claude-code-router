@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# quench - LLM router for Anthropic-protocol clients (Claude Code, Cursor, custom apps)
+#
+# Quench cools failing model providers and routes around them. Each MODEL_*
+# slot in .env can be a pipe-separated chain; on auth/rate-limit/overload,
+# the active provider is quenched in a TTL registry and the next entry
+# transparently takes over.
+#
+# Manages the local proxy daemon and toggles Claude Code / VSCode
+# environment variables so requests go through the proxy when running
+# and revert to the official Anthropic API when stopped.
+#
+# Usage:
+#   quench start      Start the proxy and point Claude Code / VSCode at it
+#   quench stop       Stop the proxy and revert to official Anthropic API
+#   quench restart    Stop, then start
+#   quench status     Show whether the proxy is running
+#   quench logs       Tail the proxy log
+#
+# Required: bash, jq, uv (installed via setup.sh), pgrep, pkill
+# Optional: osascript on macOS (auto-reloads VSCode after toggle)
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG="${QUENCH_LOG:-/tmp/quench.log}"
+PORT="${QUENCH_PORT:-8082}"
+HOST="${QUENCH_HOST:-127.0.0.1}"
+PID_PATTERN="uvicorn server:app"
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+
+# Resolve VSCode user settings path per platform. Override with
+# QUENCH_VSCODE_SETTINGS if you use Insiders, a portable install, or a
+# non-default location.
+detect_vscode_settings() {
+  if [[ -n "${QUENCH_VSCODE_SETTINGS:-}" ]]; then
+    echo "$QUENCH_VSCODE_SETTINGS"
+    return
+  fi
+  case "$(uname -s)" in
+    Darwin) echo "$HOME/Library/Application Support/Code/User/settings.json" ;;
+    Linux)  echo "$HOME/.config/Code/User/settings.json" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "$APPDATA/Code/User/settings.json" ;;
+    *) echo "$HOME/.config/Code/User/settings.json" ;;
+  esac
+}
+VSCODE_SETTINGS="$(detect_vscode_settings)"
+
+require_tool() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "quench: required tool '$1' is not installed." >&2
+    case "$1" in
+      jq) echo "  Install: 'brew install jq' (macOS) or 'apt install jq' (Debian/Ubuntu)." >&2 ;;
+      uv) echo "  Install: run ./setup.sh from the repo root, or visit https://docs.astral.sh/uv/." >&2 ;;
+    esac
+    return 1
+  }
+}
+
+proxy_pid() {
+  local p
+  p=$(pgrep -f "$PID_PATTERN" 2>/dev/null | head -1)
+  [[ -n "$p" ]] || return 1
+  echo "$p"
+}
+
+# Atomic JSON edit: read, transform with jq, write to .tmp, then mv.
+# Preserves the original on jq failure (the && chain blocks the mv).
+jq_edit() {
+  local file="$1"
+  local filter="$2"
+  local tmp="${file}.quench.tmp"
+  jq "$filter" "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+vscode_use_proxy() {
+  [[ -f "$VSCODE_SETTINGS" ]] || { echo "quench: VSCode settings not found at $VSCODE_SETTINGS (skipping)"; return; }
+  jq_edit "$VSCODE_SETTINGS" "
+    .\"claudeCode.environmentVariables\" = [
+      {\"name\":\"ANTHROPIC_BASE_URL\",\"value\":\"http://localhost:$PORT\"},
+      {\"name\":\"ANTHROPIC_AUTH_TOKEN\",\"value\":\"quench-local\"}
+    ]
+  " && echo "quench: VSCode env vars point at the proxy. Reload window to apply (Cmd+Shift+P > Developer: Reload Window)."
+}
+
+vscode_use_anthropic() {
+  [[ -f "$VSCODE_SETTINGS" ]] || return
+  jq_edit "$VSCODE_SETTINGS" '."claudeCode.environmentVariables" = []' \
+    && echo "quench: VSCode env vars cleared. Reload window to use the official Anthropic API."
+}
+
+# Tip: writing ANTHROPIC_API_KEY to ~/.claude/settings.json shadows the
+# OAuth subscription credentials in the macOS Keychain. We always strip
+# that key in both directions to keep subscription auth clean.
+claude_settings_use_proxy() {
+  [[ -f "$CLAUDE_SETTINGS" ]] || { echo "quench: Claude settings not found at $CLAUDE_SETTINGS (skipping)"; return; }
+  jq_edit "$CLAUDE_SETTINGS" "
+    (.env //= {}) |
+    .env.ANTHROPIC_BASE_URL = \"http://localhost:$PORT\" |
+    .env.ANTHROPIC_AUTH_TOKEN = \"quench-local\" |
+    del(.env.ANTHROPIC_API_KEY)
+  " && echo "quench: Claude Code routed through proxy."
+}
+
+claude_settings_use_anthropic() {
+  [[ -f "$CLAUDE_SETTINGS" ]] || return
+  jq_edit "$CLAUDE_SETTINGS" '
+    del(.env.ANTHROPIC_BASE_URL) |
+    del(.env.ANTHROPIC_AUTH_TOKEN) |
+    del(.env.ANTHROPIC_API_KEY)
+  ' && echo "quench: Claude Code routed through official Anthropic API (OAuth subscription)."
+}
+
+# Wait until uvicorn is bound to $HOST:$PORT and accepting HTTP, or time out.
+# Polls at 100ms ticks for up to QUENCH_START_TIMEOUT seconds (default 10).
+# Returns 0 on success, 1 on timeout. Any HTTP status (incl. 404) counts as
+# "bound" — connection refused is the only state that means not-yet-up.
+wait_for_proxy_ready() {
+  local timeout="${QUENCH_START_TIMEOUT:-10}"
+  local deadline=$(( $(date +%s) + timeout ))
+  while (( $(date +%s) < deadline )); do
+    if curl -s -o /dev/null --max-time 0.5 "http://$HOST:$PORT/" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+cmd_start() {
+  require_tool jq || exit 1
+  require_tool uv || exit 1
+  require_tool curl || exit 1
+
+  if pid=$(proxy_pid); then
+    echo "quench: already running (pid $pid)"
+  else
+    cd "$SCRIPT_DIR" || exit 1
+    nohup uv run uvicorn server:app --host "$HOST" --port "$PORT" > "$LOG" 2>&1 &
+    if wait_for_proxy_ready && pid=$(proxy_pid); then
+      echo "quench: started on $HOST:$PORT (pid $pid). Logs: $LOG"
+    else
+      echo "quench: failed to start within ${QUENCH_START_TIMEOUT:-10}s. Last 20 lines of $LOG:" >&2
+      tail -20 "$LOG" >&2
+      exit 1
+    fi
+  fi
+
+  vscode_use_proxy
+  claude_settings_use_proxy
+}
+
+cmd_stop() {
+  if proxy_pid > /dev/null; then
+    pkill -f "$PID_PATTERN" || true
+    echo "quench: proxy stopped."
+  else
+    echo "quench: proxy was not running."
+  fi
+  vscode_use_anthropic
+  claude_settings_use_anthropic
+}
+
+cmd_restart() {
+  cmd_stop
+  sleep 1
+  cmd_start
+}
+
+cmd_status() {
+  if pid=$(proxy_pid); then
+    echo "quench: running (pid $pid) on $HOST:$PORT"
+    curl -s --max-time 2 "http://127.0.0.1:$PORT/" 2>/dev/null | head -c 400
+    echo
+  else
+    echo "quench: not running"
+  fi
+}
+
+cmd_logs() {
+  [[ -f "$LOG" ]] || { echo "quench: no log at $LOG yet."; exit 1; }
+  tail -f "$LOG"
+}
+
+case "${1:-status}" in
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  restart) cmd_restart ;;
+  status)  cmd_status ;;
+  logs)    cmd_logs ;;
+  *)
+    echo "Usage: quench [start|stop|restart|status|logs]"
+    echo
+    echo "Environment overrides:"
+    echo "  QUENCH_PORT             default 8082"
+    echo "  QUENCH_HOST             default 127.0.0.1 (loopback only)"
+    echo "  QUENCH_LOG              default /tmp/quench.log"
+    echo "  QUENCH_VSCODE_SETTINGS  override the auto-detected VSCode settings path"
+    exit 1
+    ;;
+esac

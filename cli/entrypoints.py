@@ -21,7 +21,7 @@ def _load_env_template() -> str:
 
 
 def serve() -> None:
-    """Start the FastAPI server (registered as `free-claude-code` script)."""
+    """Start the FastAPI server (registered as `quench` script)."""
     import uvicorn
 
     from cli.process_registry import kill_all_best_effort
@@ -30,7 +30,7 @@ def serve() -> None:
     settings = get_settings()
     try:
         uvicorn.run(
-            "api.app:create_asgi_app",
+            "api.app:create_app",
             factory=True,
             host=settings.host,
             port=settings.port,
@@ -42,8 +42,8 @@ def serve() -> None:
 
 
 def init() -> None:
-    """Scaffold config at ~/.config/free-claude-code/.env (registered as `fcc-init`)."""
-    config_dir = Path.home() / ".config" / "free-claude-code"
+    """Scaffold config at ~/.config/quench/.env (registered as `quench-init`)."""
+    config_dir = Path.home() / ".config" / "quench"
     env_file = config_dir / ".env"
 
     if env_file.exists():
@@ -55,6 +55,4 @@ def init() -> None:
     template = _load_env_template()
     env_file.write_text(template, encoding="utf-8")
     print(f"Config created at {env_file}")
-    print(
-        "Edit it to set your API keys and model preferences, then run: free-claude-code"
-    )
+    print("Edit it to set your API keys and model preferences, then run: quench")
