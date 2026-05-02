@@ -90,7 +90,7 @@ scripts and unit tests; production HTTP handlers must use `resolve_provider` wit
 ## Smoke Coverage Policy
 
 Default CI stays deterministic and runs `uv run pytest` against `tests/`.
-Product smoke lives under `smoke/` and is enabled with `FCC_LIVE_SMOKE=1`.
+Product smoke lives under `smoke/` and is enabled with `QUENCH_LIVE_SMOKE=1`.
 Smoke runs should use `-n 0` unless a scenario is explicitly known to be safe
 under xdist.
 
@@ -102,7 +102,7 @@ Live smoke has two valid skip classes:
   unreachable.
 
 `product_failure` and `harness_bug` are regressions. When a provider is
-explicitly selected by `FCC_SMOKE_PROVIDER_MATRIX`, missing configuration should
+explicitly selected by `QUENCH_SMOKE_PROVIDER_MATRIX`, missing configuration should
 fail instead of being silently skipped.
 
 ## Refactor Rules

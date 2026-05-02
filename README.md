@@ -1,549 +1,323 @@
 <div align="center">
 
-# 🤖 Free Claude Code
+# 🧊 Quench
 
-Use Claude Code CLI, VS Code, JetBrains ACP, or chat bots through your own Anthropic-compatible proxy.
+**An Anthropic-API proxy with auto-failover.**
+Per-slot pipe-separated fallback chains across NVIDIA NIM, OpenRouter, DeepSeek, Ollama, LM Studio, llama.cpp. Drop-in for Claude Code, Cursor, and any Anthropic SDK client. Configure once, and Quench cools failing providers and routes around them.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json&style=for-the-badge)](https://github.com/astral-sh/uv)
-[![Tested with Pytest](https://img.shields.io/badge/testing-Pytest-00c0ff.svg?style=for-the-badge)](https://github.com/Alishahryar1/free-claude-code/actions/workflows/tests.yml)
-[![Type checking: Ty](https://img.shields.io/badge/type%20checking-ty-ffcc00.svg?style=for-the-badge)](https://pypi.org/project/ty/)
-[![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
-[![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![CI](https://github.com/SwayamDash/quench/actions/workflows/tests.yml/badge.svg)](https://github.com/SwayamDash/quench/actions/workflows/tests.yml)
+[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-f5a623.svg)](https://github.com/astral-sh/ruff)
+[![Type checking: ty](https://img.shields.io/badge/type%20checking-ty-ffcc00.svg)](https://pypi.org/project/ty/)
 
-Free Claude Code routes Anthropic Messages API traffic from Claude Code to NVIDIA NIM, OpenRouter, DeepSeek, LM Studio, llama.cpp, or Ollama. It keeps Claude Code's client-side protocol stable while letting you choose free, paid, or local models.
+[Quick Start](#quick-start) · [Providers](#supported-providers) · [API Keys](#api-key-setup) · [Fallback Chains](#fallback-chains-and-the-quench-registry) · [Configuration](#configuration) · [Compare](#how-quench-compares) · [Contributing](#contributing)
 
-[Quick Start](#quick-start) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Troubleshooting](#troubleshooting) · [Development](#development)
+![Quench routing demo](docs/demo.gif)
 
 </div>
 
-<div align="center">
-  <img src="pic.png" alt="Free Claude Code in action" width="700">
-</div>
+---
 
-## Star History
+## What and why
 
-<div align="center">
-  <a href="https://star-history.com/#Alishahryar1/free-claude-code&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Alishahryar1/free-claude-code&type=Date&theme=dark">
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Alishahryar1/free-claude-code&type=Date">
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Alishahryar1/free-claude-code&type=Date" width="700">
-    </picture>
-  </a>
-</div>
+Quench is a local proxy that speaks the Anthropic Messages API. It sits between your client (Claude Code, Cursor, any Anthropic SDK consumer) and one or more upstream LLM providers. Configure a pipe-separated chain per Claude model slot; when one provider fails, Quench *quenches* it for a TTL and routes to the next entry, transparently.
 
-## What You Get
+You hit Claude rate limits mid-session. Subscription credit runs out. A provider has a flaky weekend. Existing options: switch SDKs and break your workflow, run an OpenAI-format proxy and convert every tool, or hand-roll retry logic per provider per error code. Quench's answer: keep your client unmodified, configure once, let the proxy handle failover.
 
-- Drop-in proxy for Claude Code's Anthropic API calls.
-- Six provider backends: NVIDIA NIM, OpenRouter, DeepSeek, LM Studio, llama.cpp, and Ollama.
-- Per-model routing: send Opus, Sonnet, Haiku, and fallback traffic to different providers.
-- Native Claude Code `/model` picker support through the proxy's `/v1/models` endpoint.
-- Streaming, tool use, reasoning/thinking block handling, and local request optimizations.
-- Optional Discord or Telegram bot wrapper for remote coding sessions.
-- Optional voice-note transcription through local Whisper or NVIDIA NIM.
+```dotenv
+MODEL_SONNET="nvidia_nim/qwen/qwen3-coder-480b|nvidia_nim/openai/gpt-oss-120b|open_router/google/gemma-4-31b-it:free"
+```
 
-## Quick Start
+On 401 (auth/quota), 429 (rate limit), or 5xx (overloaded), the active entry is held cold for a TTL (1 hour, 60 seconds, 30 seconds respectively) and the next entry takes over. Even mid-stream: a `message_start` SSE buffer ensures clients see one clean stream when failover happens before any content has been emitted.
 
-### 1. Install Requirements
+This repo started as a fork of [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code), rebuilt around the chain-fallback feature and rebranded as Quench.
 
-Install [Claude Code](https://github.com/anthropics/claude-code), then install `uv` and Python 3.14.
-
-macOS/Linux:
+## 🚀 Quick Start
 
 ```bash
+git clone https://github.com/SwayamDash/quench.git
+cd quench
+./setup.sh        # installs uv, syncs deps, prepares .env, prompts for keys
+./quench start    # starts the proxy, points Claude Code and VSCode at it
+```
+
+That's the whole install. `./quench stop` reverts to the official Anthropic API. `./quench status` shows current state. `./quench logs` tails the proxy log.
+
+### Prerequisites
+
+- [Claude Code](https://github.com/anthropics/claude-code) installed.
+- At least one provider key, or one local provider running.
+- `bash`, `curl`, `jq` (auto-installed by `./setup.sh` where missing).
+
+### Manual install (skip if you ran `./setup.sh`)
+
+```bash
+# install uv (Astral)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv self update
+
+# Quench requires Python 3.14
 uv python install 3.14
+
+# install deps
+uv sync
+
+# copy env template, fill in keys
+cp .env.example .env
+
+# start the proxy
+./quench start
 ```
 
 Windows PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uv self update
 uv python install 3.14
+uv sync
+copy .env.example .env
+.\quench start
 ```
 
-### 2. Clone And Configure
+## 📝 Quick Example
+
+The minimum config is a single line in `.env` mapping a Claude model slot to an upstream model:
+
+```dotenv
+# single-provider mapping
+MODEL_SONNET="nvidia_nim/qwen/qwen3-coder-480b-a35b-instruct"
+
+# chain: try first; on auth/rate-limit/overload, try second; then third
+MODEL_OPUS="nvidia_nim/qwen/qwen3-coder-480b|nvidia_nim/openai/gpt-oss-120b|open_router/anthropic/claude-3.5-sonnet:beta"
+
+# fully local, no API keys
+MODEL_HAIKU="ollama/llama3.2|lmstudio/local-model"
+```
+
+Format: `provider_id/model_path[|next_provider_id/model_path|...]`. Provider IDs are `nvidia_nim`, `open_router`, `deepseek`, `ollama`, `lmstudio`, `llamacpp`. The model path is whatever string the upstream uses for the model name.
+
+Once `.env` is configured, `./quench start` brings the proxy up on `127.0.0.1:8082` and points Claude Code at it. Use Claude Code normally; routing happens behind the scenes.
+
+## 🔌 Supported Providers
+
+Quench supports six provider backends, grouped by what you need to use them:
+
+**Free-tier (with key):**
+
+| Provider | Free quota | Signup |
+|---|---|---|
+| **NVIDIA NIM** | 40 requests / minute | [build.nvidia.com](https://build.nvidia.com/settings/api-keys) |
+| **OpenRouter** | Free models on `:free` suffix; small monthly credits | [openrouter.ai/keys](https://openrouter.ai/keys) |
+
+**Paid (with key):**
+
+| Provider | Pricing | Signup |
+|---|---|---|
+| **DeepSeek** | Pay-as-you-go, ~$0.14/M tokens | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+
+**Local (no key required):**
+
+| Provider | Setup | Default URL |
+|---|---|---|
+| **Ollama** | `curl -fsSL https://ollama.com/install.sh \| sh && ollama serve` | `http://localhost:11434` |
+| **LM Studio** | [Download](https://lmstudio.ai) → Local Server tab → Start | `http://localhost:1234/v1` |
+| **llama.cpp** | Build / install `llama-server`, run `llama-server -m model.gguf` | `http://localhost:8080/v1` |
+
+## 🔑 API Key Setup
+
+Step-by-step for each provider. Skip the ones you don't plan to use.
+
+### NVIDIA NIM (recommended free tier)
+
+1. Sign up at [build.nvidia.com](https://build.nvidia.com) (free, requires NVIDIA developer account).
+2. Visit the API keys page: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys).
+3. Click **Generate API Key**. Copy the key.
+4. In `.env`, set:
+   ```dotenv
+   NVIDIA_NIM_API_KEY="nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ```
+5. Free tier: 40 requests per minute. Quench will hold a 60-second cooldown if you hit the rate limit and route to the next chain entry.
+
+Recommended models on NVIDIA NIM: `qwen/qwen3-coder-480b-a35b-instruct` (coding), `openai/gpt-oss-120b` (general).
+
+### OpenRouter (most provider variety)
+
+1. Sign up at [openrouter.ai](https://openrouter.ai) (Google or GitHub OAuth).
+2. Get your key at [openrouter.ai/keys](https://openrouter.ai/keys). Click **Create Key**.
+3. In `.env`, set:
+   ```dotenv
+   OPENROUTER_API_KEY="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx"
+   ```
+4. Browse free models with the `:free` suffix at [openrouter.ai/models?max_price=0](https://openrouter.ai/models?max_price=0). Examples: `google/gemma-4-31b-it:free`, `mistralai/mistral-7b-instruct:free`.
+5. Free models are rate-limited; chain them with NVIDIA NIM for resilience.
+
+### DeepSeek (cheap paid)
+
+1. Sign up at [platform.deepseek.com](https://platform.deepseek.com).
+2. Get a key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
+3. Add credit (minimum $1).
+4. In `.env`, set:
+   ```dotenv
+   DEEPSEEK_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ```
+5. Pricing is roughly an order of magnitude below GPT-4-class APIs. Useful as a paid backstop.
+
+### Ollama (fully local, free)
+
+1. Install: `curl -fsSL https://ollama.com/install.sh | sh` (macOS/Linux) or `winget install Ollama.Ollama` (Windows).
+2. Pull a model: `ollama pull llama3.2` (or whatever fits your hardware).
+3. Start the server: `ollama serve` (or just `ollama run <model>` for one-shot).
+4. No API key. Set in `.env`:
+   ```dotenv
+   OLLAMA_BASE_URL="http://localhost:11434"
+   ```
+5. Reference in chains as `ollama/<model_name>`. Works offline.
+
+### LM Studio (local GUI)
+
+1. Download from [lmstudio.ai](https://lmstudio.ai).
+2. Browse and download a model in the GUI.
+3. Click the **Local Server** tab. Click **Start Server**.
+4. No API key. Set in `.env`:
+   ```dotenv
+   LM_STUDIO_BASE_URL="http://localhost:1234/v1"
+   ```
+5. Reference in chains as `lmstudio/<model_name>`.
+
+### llama.cpp (lightweight local)
+
+1. Install or build `llama.cpp`. See [github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp).
+2. Run with the OpenAI-compatible server: `llama-server -m path/to/model.gguf --port 8080`.
+3. No API key. Set in `.env`:
+   ```dotenv
+   LLAMACPP_BASE_URL="http://localhost:8080/v1"
+   ```
+4. Reference in chains as `llamacpp/<model_name>`.
+
+![Get API keys in 5 minutes](docs/api-keys.gif)
+
+## 🔄 Fallback Chains and the Quench Registry
+
+This is the headline feature. Three layers of failover, all transparent to the client:
+
+**Inter-turn failover (per request).** The quench registry persists in-process across requests. Once a provider has been quenched on turn N, turn N+1 skips it and starts from the next chain entry. Restoration is automatic when the TTL expires.
+
+**Pre-stream failover.** Before opening the upstream HTTP stream, Quench runs a preflight check. If the provider returns a retryable error (auth, rate limit, overload), the chain advances and the client sees no failure.
+
+**In-stream-but-pre-content failover.** Anthropic SSE streams begin with a `message_start` event. Most providers emit `message_start` *before* the upstream HTTP call completes, so an early 401 or 429 arrives after the first SSE chunk has hit the wire. Quench buffers `message_start` and only flushes it once the upstream commits to a real response. If the first provider dies after `message_start` but before any content, the buffer is dropped silently and the next chain entry takes over from a clean state.
+
+**TTL defaults**, tunable per call:
+
+| Error class | TTL | Why |
+|---|---|---|
+| Auth (401/403) | 1 hour | Quota or credit exhaustion. Long backoff. |
+| Rate limit (429) | 60 seconds | Most rate-limit windows reset within a minute. |
+| Overloaded (5xx, 529) | 30 seconds | Server-side recovery is usually fast. |
+| Other API error | 15 seconds | Fallback default. |
+
+The registry is in-memory only. Restart Quench and all entries clear. Single-entry chains skip quench entirely so legitimate client retries aren't refused.
+
+True mid-stream failures (the upstream dies *after* content has been streamed to the client) cannot be recovered without buffering full responses. Quench gracefully ends the SSE in that case so the client doesn't hang.
+
+## ⚙️ Configuration
+
+`.env` covers everything. Highlights:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MODEL_OPUS`, `MODEL_SONNET`, `MODEL_HAIKU`, `MODEL` | empty / `nvidia_nim/z-ai/glm4.7` | Per-Claude-model chain. Empty means inherit `MODEL`. |
+| `ENABLE_OPUS_THINKING`, `ENABLE_SONNET_THINKING`, `ENABLE_HAIKU_THINKING`, `ENABLE_MODEL_THINKING` | true | Pass thinking blocks to the upstream when supported. |
+| `ANTHROPIC_AUTH_TOKEN` | empty | If set, Quench requires this bearer token from clients. **Set this whenever the proxy is reachable from anywhere other than loopback.** |
+| `QUENCH_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` exposes Quench on the LAN. |
+| `QUENCH_PORT` | `8082` | Listen port. |
+| `QUENCH_LOG` | `/tmp/quench.log` | Log file path. |
+| `QUENCH_START_TIMEOUT` | `10` | Seconds to wait for uvicorn to bind on `quench start`. |
+| `LOG_RAW_API_PAYLOADS`, `LOG_RAW_SSE_EVENTS`, `LOG_API_ERROR_TRACEBACKS` | false | Verbose diagnostics. **Off by default** to avoid leaking request content into logs. |
+| `WEB_FETCH_ALLOW_PRIVATE_NETWORKS` | false | If true, web-search/web-fetch tools may reach RFC1918 ranges. |
+
+See `.env.example` for the full list with annotations.
+
+## ⚖️ How Quench Compares
+
+| | Free-tier helpers | Fallback chains | Anthropic-native SSE | Drop-in for Claude Code |
+|---|---|---|---|---|
+| **Quench** | Yes, with chain auto-fallback | Yes, per-slot, TTL-quenched, mid-stream-safe | Yes | Yes |
+| [BerriAI/litellm](https://github.com/BerriAI/litellm) | BYO keys | Request-level routing, no per-slot chains | OpenAI-format-first, Anthropic via adapter | Indirect |
+| [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code) (upstream) | Yes | Single value per slot | Yes | Yes |
+| [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) | BYO keys | Intent-based routing, no quench TTL | Translates to OpenAI chat | Yes |
+| [fuergaosi233/claude-code-proxy](https://github.com/fuergaosi233/claude-code-proxy) | BYO keys | No | Chat-only, no Anthropic SSE | Yes |
+
+**Pick Quench when:** you're hitting free-tier rate limits and want a configure-once-then-forget setup that survives provider hiccups.
+
+**Pick LiteLLM when:** you have many paid keys and want OpenAI-format unification across the entire stack, with cost tracking and gateway features.
+
+**Pick claude-code-router when:** you want intent-based routing (different model per task category: reasoning vs. background vs. web search).
+
+## 🏗 Architecture
+
+```
++----------------------+        +-------------------+        +--------------------+
+|  Claude Code / SDK   |        |   Quench proxy    |        |  Upstream provider |
+|  (Anthropic format)  | ---->  |   :8082 loopback  | ---->  |  (NIM / OR / etc.) |
++----------------------+        +---------+---------+        +--------------------+
+                                          |
+                                          v
+                                   +--------------+
+                                   |   Quench     |
+                                   |   registry   |  (TTL cooldowns)
+                                   +--------------+
+```
+
+Quench inspects each `/v1/messages` request, resolves the model chain, walks chain entries skipping quenched ones, and forwards to the first healthy upstream. Errors during preflight or before the first content chunk trigger transparent failover. After the first chunk reaches the client, errors gracefully end the stream.
+
+The chain pump (`api/services.py::ClaudeProxyService._chain_pump`) is the load-bearing function; the quench registry (`core/quench.py`) is a thread-safe TTL map. State is process-local and never persisted.
+
+## 💬 Discord / Telegram Bots
+
+Quench inherits the optional Discord and Telegram remote-coding bots from upstream. They let you drive a Claude CLI subprocess from chat, with tree-based threading and session persistence.
+
+Set `MESSAGING_PLATFORM` in `.env` to `discord`, `telegram`, or `none`. See `.env.example` for the full set of `*_BOT_TOKEN` and channel-allowlist variables. The bot stack is opt-in; default is `discord` but disabled until a token is provided.
+
+## 🛠 Development
+
+Quench targets Python 3.14 and uses `uv` for everything.
 
 ```bash
-git clone https://github.com/Alishahryar1/free-claude-code.git
-cd free-claude-code
-cp .env.example .env
-```
-
-PowerShell uses:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Edit `.env` and choose one provider. For the default NVIDIA NIM path:
-
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-MODEL="nvidia_nim/z-ai/glm4.7"
-ANTHROPIC_AUTH_TOKEN="freecc"
-```
-
-Use any local secret for `ANTHROPIC_AUTH_TOKEN`; Claude Code will send the same value back to this proxy. Leave it empty only for local/private testing.
-
-### 3. Start The Proxy
-
-```bash
-uv run uvicorn server:app --host 0.0.0.0 --port 8082
-```
-
-Package install alternative:
-
-```bash
-uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
-fcc-init
-free-claude-code
-```
-
-`fcc-init` creates `~/.config/free-claude-code/.env` from the bundled template.
-
-### 4. Run Claude Code
-
-Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`.
-
-PowerShell:
-
-```powershell
-$env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; claude
-```
-
-Bash:
-
-```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
-```
-
-## Choose A Provider
-
-Model values use this format:
-
-```text
-provider_id/model/name
-```
-
-`MODEL` is the fallback. `MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU` override routing for requests that Claude Code sends for those tiers.
-
-| Provider | Prefix | Transport | Key | Default base URL |
-| --- | --- | --- | --- | --- |
-| <img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18"> NVIDIA NIM | `nvidia_nim/...` | OpenAI chat translation | `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` |
-| <img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18"> OpenRouter | `open_router/...` | Anthropic Messages | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
-| <img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18"> DeepSeek | `deepseek/...` | Anthropic Messages | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` |
-| <img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18"> LM Studio | `lmstudio/...` | Anthropic Messages | none | `http://localhost:1234/v1` |
-| <img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18"> llama.cpp | `llamacpp/...` | Anthropic Messages | none | `http://localhost:8080/v1` |
-| <img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18"> Ollama | `ollama/...` | Anthropic Messages | none | `http://localhost:11434` |
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18"> <b>NVIDIA NIM</b></summary>
-
-Get a key at [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys).
-
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-MODEL="nvidia_nim/z-ai/glm4.7"
-```
-
-Popular examples:
-
-- `nvidia_nim/z-ai/glm4.7`
-- `nvidia_nim/z-ai/glm5`
-- `nvidia_nim/moonshotai/kimi-k2.5`
-- `nvidia_nim/minimaxai/minimax-m2.5`
-
-Browse models at [build.nvidia.com](https://build.nvidia.com/explore/discover).
-
-</details>
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18"> <b>OpenRouter</b></summary>
-
-Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
-
-```dotenv
-OPENROUTER_API_KEY="sk-or-your-key"
-MODEL="open_router/stepfun/step-3.5-flash:free"
-```
-
-Browse [all models](https://openrouter.ai/models) or [free models](https://openrouter.ai/collections/free-models).
-
-</details>
-
-<details>
-<summary><img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18"> <b>DeepSeek</b></summary>
-
-Get a key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
-
-```dotenv
-DEEPSEEK_API_KEY="your-deepseek-key"
-MODEL="deepseek/deepseek-chat"
-```
-
-This provider uses DeepSeek's Anthropic-compatible endpoint, not the OpenAI chat-completions endpoint.
-
-</details>
-
-<details>
-<summary><img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18"> <b>LM Studio</b></summary>
-
-Start LM Studio's local server, load a model, then configure:
-
-```dotenv
-LM_STUDIO_BASE_URL="http://localhost:1234/v1"
-MODEL="lmstudio/your-loaded-model"
-```
-
-Use the model identifier shown by LM Studio. Prefer models with tool-use support for Claude Code workflows.
-
-</details>
-
-<details>
-<summary><img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18"> <b>llama.cpp</b></summary>
-
-Start `llama-server` with an Anthropic-compatible `/v1/messages` endpoint and enough context for Claude Code requests.
-
-```dotenv
-LLAMACPP_BASE_URL="http://localhost:8080/v1"
-MODEL="llamacpp/local-model"
-```
-
-For local coding models, context size matters. If llama.cpp returns HTTP 400 for normal Claude Code requests, increase `--ctx-size` and verify the model/server build supports the requested features.
-
-</details>
-
-<details>
-<summary><img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18"> <b>Ollama</b></summary>
-
-Run Ollama and pull a model:
-
-```bash
-ollama pull llama3.1
-ollama serve
-```
-
-Then configure the proxy. `OLLAMA_BASE_URL` is the Ollama server root; do not append `/v1`.
-
-```dotenv
-OLLAMA_BASE_URL="http://localhost:11434"
-MODEL="ollama/llama3.1"
-```
-
-Use the same tag shown by `ollama list`, for example `ollama/llama3.1:8b`.
-
-</details>
-
-<details>
-<summary><b>Mix providers by model tier</b></summary>
-
-Each tier can use a different provider:
-
-```dotenv
-NVIDIA_NIM_API_KEY="nvapi-your-key"
-OPENROUTER_API_KEY="sk-or-your-key"
-
-MODEL_OPUS="nvidia_nim/moonshotai/kimi-k2.5"
-MODEL_SONNET="open_router/deepseek/deepseek-r1-0528:free"
-MODEL_HAIKU="lmstudio/unsloth/GLM-4.7-Flash-GGUF"
-MODEL="nvidia_nim/z-ai/glm4.7"
-```
-
-</details>
-
-## Connect Claude Code
-
-### Claude Code CLI
-
-```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
-```
-
-### VS Code Extension
-
-Open Settings, search for `claude-code.environmentVariables`, choose **Edit in settings.json**, and add:
-
-```json
-"claudeCode.environmentVariables": [
-  { "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8082" },
-  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "freecc" }
-]
-```
-
-Reload the extension. If the extension shows a login screen, choose the Anthropic Console path once; the local proxy still handles model traffic after the environment variables are active.
-
-### JetBrains ACP
-
-Edit the installed Claude ACP config:
-
-- Windows: `C:\Users\%USERNAME%\AppData\Roaming\JetBrains\acp-agents\installed.json`
-- Linux/macOS: `~/.jetbrains/acp.json`
-
-Set the environment for `acp.registry.claude-acp`:
-
-```json
-"env": {
-  "ANTHROPIC_BASE_URL": "http://localhost:8082",
-  "ANTHROPIC_AUTH_TOKEN": "freecc"
-}
-```
-
-Restart the IDE after changing the file.
-
-### Model Picker
-
-Claude Code 2.1.126 or later reads this proxy's `/v1/models` endpoint when `ANTHROPIC_BASE_URL` points at the proxy. Start Claude Code normally, run `/model`, and choose any discovered provider model.
-
-<div align="center">
-  <img src="cc-model-picker.png" alt="Claude Code model picker showing gateway models" width="700">
-</div>
-
-The proxy lists models for configured provider keys and referenced local providers. Picker-safe IDs are routed back to the real provider/model automatically, so no `.env` edit or separate launcher script is needed after startup.
-
-Each provider model also has a `(no thinking)` picker variant. Use it when a model does not support Claude Code thinking or fails with adaptive-thinking requests. It routes to the same upstream model while asking Claude Code to send a non-thinking request.
-
-## Optional Integrations
-
-### Discord And Telegram Bots
-
-The bot wrapper runs Claude Code sessions remotely, streams progress, supports reply-based conversation branches, and can stop or clear tasks.
-
-Discord minimum config:
-
-```dotenv
-MESSAGING_PLATFORM="discord"
-DISCORD_BOT_TOKEN="your-discord-bot-token"
-ALLOWED_DISCORD_CHANNELS="123456789"
-CLAUDE_WORKSPACE="./agent_workspace"
-ALLOWED_DIR="C:/Users/yourname/projects"
-```
-
-Create the bot in the [Discord Developer Portal](https://discord.com/developers/applications), enable Message Content Intent, and invite it with read/send/history permissions.
-
-Telegram minimum config:
-
-```dotenv
-MESSAGING_PLATFORM="telegram"
-TELEGRAM_BOT_TOKEN="123456789:ABC..."
-ALLOWED_TELEGRAM_USER_ID="your-user-id"
-CLAUDE_WORKSPACE="./agent_workspace"
-ALLOWED_DIR="C:/Users/yourname/projects"
-```
-
-Get a token from [@BotFather](https://t.me/BotFather) and your user ID from [@userinfobot](https://t.me/userinfobot).
-
-Useful commands:
-
-- `/stop` cancels a task; reply to a task message to stop only that branch.
-- `/clear` resets sessions; reply to clear one branch.
-- `/stats` shows session state.
-
-### Voice Notes
-
-Voice notes work on Discord and Telegram. Choose one backend:
-
-```bash
-uv sync --extra voice_local
-uv sync --extra voice
-uv sync --extra voice --extra voice_local
-```
-
-```dotenv
-VOICE_NOTE_ENABLED=true
-WHISPER_DEVICE="cpu"          # cpu | cuda | nvidia_nim
-WHISPER_MODEL="base"
-HF_TOKEN=""
-```
-
-Use `WHISPER_DEVICE="nvidia_nim"` with the `voice` extra and `NVIDIA_NIM_API_KEY` for NVIDIA-hosted transcription.
-
-## Configuration Reference
-
-[`.env.example`](.env.example) is the canonical list of variables. The sections below are the ones most users change.
-
-### Model Routing
-
-```dotenv
-MODEL="nvidia_nim/z-ai/glm4.7"
-MODEL_OPUS=
-MODEL_SONNET=
-MODEL_HAIKU=
-ENABLE_MODEL_THINKING=true
-ENABLE_OPUS_THINKING=
-ENABLE_SONNET_THINKING=
-ENABLE_HAIKU_THINKING=
-```
-
-Blank per-tier values inherit the fallback. Blank thinking overrides inherit `ENABLE_MODEL_THINKING`.
-
-### Provider Keys And URLs
-
-```dotenv
-NVIDIA_NIM_API_KEY=""
-OPENROUTER_API_KEY=""
-DEEPSEEK_API_KEY=""
-LM_STUDIO_BASE_URL="http://localhost:1234/v1"
-LLAMACPP_BASE_URL="http://localhost:8080/v1"
-OLLAMA_BASE_URL="http://localhost:11434"
-```
-
-Proxy settings are per provider:
-
-```dotenv
-NVIDIA_NIM_PROXY=""
-OPENROUTER_PROXY=""
-LMSTUDIO_PROXY=""
-LLAMACPP_PROXY=""
-```
-
-### Rate Limits And Timeouts
-
-```dotenv
-PROVIDER_RATE_LIMIT=1
-PROVIDER_RATE_WINDOW=3
-PROVIDER_MAX_CONCURRENCY=5
-HTTP_READ_TIMEOUT=120
-HTTP_WRITE_TIMEOUT=10
-HTTP_CONNECT_TIMEOUT=10
-```
-
-Use lower limits for free hosted providers; local providers can usually tolerate higher concurrency if the machine can handle it.
-
-### Security And Diagnostics
-
-```dotenv
-ANTHROPIC_AUTH_TOKEN=
-LOG_RAW_API_PAYLOADS=false
-LOG_RAW_SSE_EVENTS=false
-LOG_API_ERROR_TRACEBACKS=false
-LOG_RAW_MESSAGING_CONTENT=false
-LOG_RAW_CLI_DIAGNOSTICS=false
-LOG_MESSAGING_ERROR_DETAILS=false
-```
-
-Raw logging flags can expose prompts, tool arguments, paths, and model output. Keep them off unless you are debugging locally.
-
-### Local Web Tools
-
-```dotenv
-ENABLE_WEB_SERVER_TOOLS=true
-WEB_FETCH_ALLOWED_SCHEMES=http,https
-WEB_FETCH_ALLOW_PRIVATE_NETWORKS=false
-```
-
-These tools perform outbound HTTP from the proxy. Keep private-network access disabled unless you are in a controlled lab environment.
-
-## Troubleshooting
-
-### Claude Code says `undefined ... input_tokens`, `$.speed`, or malformed response
-
-Update to the latest commit first. Older versions could emit invalid usage metadata in streaming responses. Then check:
-
-- `ANTHROPIC_BASE_URL` is `http://localhost:8082`, not `http://localhost:8082/v1`.
-- The proxy is returning Server-Sent Events for `/v1/messages`.
-- `server.log` contains no upstream 400/500 response before the malformed-response error.
-
-### llama.cpp or LM Studio returns HTTP 400
-
-This usually means the local runtime rejected the Anthropic Messages request before the proxy could stream a model answer.
-
-Check:
-
-- The local server supports `POST /v1/messages`.
-- The model and runtime support the requested context length and tools.
-- llama.cpp was started with enough `--ctx-size` for Claude Code prompts.
-- The configured base URL includes `/v1` for LM Studio and llama.cpp.
-
-### Provider disconnects during streaming
-
-Errors like `incomplete chunked read`, `server disconnected`, or a peer closing the body usually come from the upstream provider or gateway. Reduce concurrency, raise timeouts, or retry later.
-
-### Tool calls work on one model but not another
-
-Tool support is model and provider dependent. Some OpenAI-compatible models emit malformed tool-call deltas, omit tool names, or return tool calls as plain text. Try another model or provider before assuming the proxy is broken.
-
-### The VS Code extension still shows a login screen
-
-Confirm the extension environment variables are set, then reload the extension or restart VS Code. The browser login flow may still appear once; the local proxy is used when `ANTHROPIC_BASE_URL` is active in the extension process.
-
-## How It Works
-
-```text
-Claude Code CLI / IDE
-        |
-        | Anthropic Messages API
-        v
-Free Claude Code proxy (:8082)
-        |
-        | provider-specific request/stream adapter
-        v
-NIM / OpenRouter / DeepSeek / LM Studio / llama.cpp / Ollama
-```
-
-Important pieces:
-
-- FastAPI exposes Anthropic-compatible routes such as `/v1/messages`, `/v1/messages/count_tokens`, and `/v1/models`.
-- Model routing resolves the Claude model name to `MODEL_OPUS`, `MODEL_SONNET`, `MODEL_HAIKU`, or `MODEL`.
-- NIM uses OpenAI chat streaming translated into Anthropic SSE.
-- OpenRouter, DeepSeek, LM Studio, llama.cpp, and Ollama use Anthropic Messages style transports.
-- The proxy normalizes thinking blocks, tool calls, token usage metadata, and provider errors into the shape Claude Code expects.
-- Request optimizations answer trivial Claude Code probes locally to save latency and quota.
-
-## Development
-
-### Project Structure
-
-```text
-free-claude-code/
-├── server.py              # ASGI entry point
-├── api/                   # FastAPI routes, service layer, routing, optimizations
-├── core/                  # Shared Anthropic protocol helpers and SSE utilities
-├── providers/             # Provider transports, registry, rate limiting
-├── messaging/             # Discord/Telegram adapters, sessions, voice
-├── cli/                   # Package entry points and Claude process management
-├── config/                # Settings, provider catalog, logging
-└── tests/                 # Unit and contract tests
-```
-
-### Commands
-
-```bash
-uv run ruff format
-uv run ruff check
+# install dev deps
+uv sync
+
+# format + lint + type check + test (in this order)
+uv run ruff format .
+uv run ruff check .
 uv run ty check
-uv run pytest
+uv run pytest -v
 ```
 
-Run them in that order before pushing. CI enforces the same checks.
+CI enforces all four checks on every push and PR (see `.github/workflows/tests.yml`). A second workflow (`fresh-clone.yml`) validates that a brand-new clone runs `setup.sh` cleanly and that `quench` parses without syntax errors.
 
-### Package Scripts
+Smoke tests live under `smoke/` and are opt-in via `QUENCH_LIVE_SMOKE=1`. They touch real providers, real bot APIs, or real local model servers.
 
-`pyproject.toml` installs:
+## 🗺 Roadmap
 
-- `free-claude-code`: starts the proxy with configured host and port.
-- `fcc-init`: creates the user config template at `~/.config/free-claude-code/.env`.
+- v0.2: VSCode extension with live failover view and per-request provider attribution.
+- v0.2: Persistent quench registry (SQLite) so cooldowns survive restarts.
+- v0.2: `quench-skills` companion repo with curated prompt-engineering and automation skills.
+- Future: Routing telemetry to learn fastest healthy provider per task type.
 
-### Extending
+Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- Add OpenAI-compatible providers by extending `OpenAIChatTransport`.
-- Add Anthropic Messages providers by extending `AnthropicMessagesTransport`.
-- Register provider metadata in `config.provider_catalog` and factory wiring in `providers.registry`.
-- Add messaging platforms by implementing the `MessagingPlatform` interface in `messaging/`.
+## 🤝 Contributing
 
-## Contributing
+Quench is MIT-licensed and accepts contributions of all sizes. New provider adapters, new fallback strategies, bug fixes, docs, examples — all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow and [SECURITY.md](SECURITY.md) for the threat model and disclosure policy.
 
-- Report bugs and feature requests in [Issues](https://github.com/Alishahryar1/free-claude-code/issues).
-- Keep changes small and covered by focused tests.
-- Do not open Docker integration PRs.
-- Do not open README change PRs just open an issue for it.
-- Run the full check sequence before opening a pull request.
-- The syntax Except X, Y is brought back in python 3.14 final version (not in 3.14 alpha). Keep in mind before opening PRs.
+Want to add a provider? Check `providers/` for the existing adapter pattern. The `BaseProvider` ABC is small and well-commented.
 
-## License
+## 🙏 Acknowledgments
 
-MIT License. See [LICENSE](LICENSE) for details.
+Quench is forked from [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code), which built the original Anthropic-to-OpenAI translation layer, the Discord/Telegram bot stack, and the per-Claude-model routing primitives. Upstream development paused, so Quench picks up day-to-day fixes and the chain-fallback feature in this fork.
+
+Comparison table differentiates Quench from [musistudio/claude-code-router](https://github.com/musistudio/claude-code-router) and [fuergaosi233/claude-code-proxy](https://github.com/fuergaosi233/claude-code-proxy), which solve adjacent problems with different trade-offs.
+
+## 📄 License
+
+MIT. Copyright (c) 2026 Ali Khokhar (original work) and Swayam Dash (Quench fork). See [LICENSE](LICENSE).

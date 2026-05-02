@@ -1,19 +1,18 @@
 # AGENTIC DIRECTIVE
 
-> This file is identical to CLAUDE.md. Keep them in sync.
+> This is the single source of truth for assistants working in this repo. `CLAUDE.md` is a thin pointer to this file; do not duplicate content there.
 
 ## CODING ENVIRONMENT
 
-- Install astral uv using "curl -LsSf https://astral.sh/uv/install.sh | sh" if not already installed and if already installed then update it to the latest version
-- Install Python 3.14 using `uv python install 3.14` if not already installed
-- Always use `uv run` to run files instead of the global `python` command.
-- Current uv ruff formatter is set to py314 which has supports multiple exception types without paranthesis (except TypeError, ValueError:)
-- Read `.env.example` for environment variables.
-- All CI checks must pass; failing checks block merge.
+- Install Astral `uv` if missing: `curl -LsSf https://astral.sh/uv/install.sh | sh`. Update if already installed.
+- `uv python install 3.14` if Python 3.14 isn't available.
+- Always run scripts with `uv run`, not the global `python`.
+- Ruff formatter targets `py314`, which supports parentheses-free multi-type excepts (`except TypeError, ValueError:`).
+- See `.env.example` for the canonical list of environment variables.
+- All CI checks must pass on push and PR; failing checks block merge.
 - Add tests for new changes (including edge cases), then run `uv run pytest`.
-- Run checks in this order: `uv run ruff format`, `uv run ruff check`, `uv run ty check`, `uv run pytest`.
-- Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue.
-- All 5 checks are enforced in `tests.yml` on push/merge.
+- Run checks in this order: `uv run ruff format`, `uv run ruff check`, `uv run ty check`, `uv run pytest`. The type-ignore guard runs as a separate CI step (5 checks total, enforced in `tests.yml`).
+- Never add `# type: ignore` or `# ty: ignore`. Fix the underlying type issue.
 
 ## IDENTITY & CONTEXT
 
