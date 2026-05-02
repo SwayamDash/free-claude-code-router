@@ -23,8 +23,8 @@ def test_live_tool_use_when_configured_model_supports_tools(
     provider_model = models[0]
 
     payload = message_payload(
-        "Use the echo_smoke tool once with value FCC_SMOKE_TOOL.",
-        model="fcc-smoke-default",
+        "Use the echo_smoke tool once with value QUENCH_SMOKE_TOOL.",
+        model="quench-smoke-default",
         max_tokens=256,
         extra={
             "tools": [

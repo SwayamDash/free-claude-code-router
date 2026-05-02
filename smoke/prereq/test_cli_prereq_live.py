@@ -64,7 +64,7 @@ def test_claude_cli_prompt_when_available(
         if smoke_config.settings.anthropic_auth_token:
             env["ANTHROPIC_AUTH_TOKEN"] = smoke_config.settings.anthropic_auth_token
         result = subprocess.run(
-            [claude_bin, "-p", "Reply with exactly FCC_SMOKE_PONG"],
+            [claude_bin, "-p", "Reply with exactly QUENCH_SMOKE_PONG"],
             cwd=tmp_path,
             env=env,
             capture_output=True,
@@ -77,7 +77,7 @@ def test_claude_cli_prompt_when_available(
     assert "POST /v1/messages" in server_log, (
         "Claude CLI did not call the local Anthropic-compatible endpoint"
     )
-    if "FCC_SMOKE_PONG" not in result.stdout:
+    if "QUENCH_SMOKE_PONG" not in result.stdout:
         skip_upstream_unavailable(
             "Claude CLI reached the local proxy but returned no smoke token"
         )

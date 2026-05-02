@@ -90,7 +90,7 @@ class ConversationDriver:
         self,
         text: str,
         *,
-        model: str = "fcc-smoke-default",
+        model: str = "quench-smoke-default",
         max_tokens: int = 256,
         extra: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
@@ -161,9 +161,6 @@ class ProviderMatrixDriver:
         self.config = config
 
     def configured_models(self) -> list[ProviderModel]:
-        return self.config.provider_models()
-
-    def provider_smoke_models(self) -> list[ProviderModel]:
         selected = self.config.provider_matrix
         missing_selected = [
             provider
@@ -177,16 +174,16 @@ class ProviderMatrixDriver:
                 + ", ".join(sorted(missing_selected))
             )
 
-        models = self.config.provider_smoke_models()
-        if not models and os.getenv("FCC_ALLOW_NO_PROVIDER_SMOKE") != "1":
+        models = self.config.provider_models()
+        if not models and os.getenv("QUENCH_ALLOW_NO_PROVIDER_SMOKE") != "1":
             fail_missing_env(
-                "no configured provider smoke models; set FCC_ALLOW_NO_PROVIDER_SMOKE=1 "
+                "no configured provider models; set QUENCH_ALLOW_NO_PROVIDER_SMOKE=1 "
                 "only for no-provider smoke collection"
             )
         return models
 
     def first_model(self) -> ProviderModel:
-        models = self.provider_smoke_models()
+        models = self.configured_models()
         if not models:
             pytest.skip("missing_env: no configured provider model")
         return models[0]
@@ -231,7 +228,7 @@ class ClientProtocolDriver:
                         {"type": "text", "text": "Hello."},
                     ],
                 },
-                {"role": "user", "content": "Reply with exactly FCC_SMOKE_CLIENT"},
+                {"role": "user", "content": "Reply with exactly QUENCH_SMOKE_CLIENT"},
             ],
             "thinking": {"type": "adaptive", "budget_tokens": 1024},
         }
@@ -250,7 +247,7 @@ class ClientProtocolDriver:
                             "type": "tool_use",
                             "id": "toolu_client_smoke",
                             "name": "echo_smoke",
-                            "input": {"value": "FCC_SMOKE_CLIENT"},
+                            "input": {"value": "QUENCH_SMOKE_CLIENT"},
                         }
                     ],
                 },
@@ -260,7 +257,7 @@ class ClientProtocolDriver:
                         {
                             "type": "tool_result",
                             "tool_use_id": "toolu_client_smoke",
-                            "content": "FCC_SMOKE_CLIENT",
+                            "content": "QUENCH_SMOKE_CLIENT",
                         }
                     ],
                 },

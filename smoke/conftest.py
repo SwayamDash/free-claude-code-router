@@ -12,7 +12,7 @@ from smoke.lib.server import RunningServer, start_server
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     if SmokeConfig.load().live:
         return
-    skip = pytest.mark.skip(reason="set FCC_LIVE_SMOKE=1 to run local smoke tests")
+    skip = pytest.mark.skip(reason="set QUENCH_LIVE_SMOKE=1 to run local smoke tests")
     for item in items:
         item.add_marker(skip)
 

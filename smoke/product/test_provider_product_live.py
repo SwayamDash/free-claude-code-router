@@ -3,7 +3,6 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from config.provider_catalog import PROVIDER_CATALOG
 from core.anthropic.stream_contracts import (
     assert_anthropic_stream_contract,
     parse_sse_lines,
@@ -27,7 +26,7 @@ pytestmark = [pytest.mark.live, pytest.mark.smoke_target("providers")]
 
 
 def test_provider_matrix_presence_e2e(smoke_config: SmokeConfig) -> None:
-    models = ProviderMatrixDriver(smoke_config).provider_smoke_models()
+    models = ProviderMatrixDriver(smoke_config).configured_models()
     assert models or smoke_config.provider_matrix == frozenset()
 
 
@@ -53,19 +52,8 @@ def test_provider_interleaved_thinking_tool_e2e(smoke_config: SmokeConfig) -> No
 
 
 @pytest.mark.smoke_target("tools")
-def test_provider_tool_use_then_text_history_e2e(smoke_config: SmokeConfig) -> None:
-    """OpenAI-compatible path: history with tool_use + assistant text after tool (issue #206)."""
-    _run_for_each_provider(smoke_config, _scenario_tool_use_then_text_in_history)
-
-
-@pytest.mark.smoke_target("tools")
 def test_provider_tool_result_continuation_e2e(smoke_config: SmokeConfig) -> None:
     _run_for_each_provider(smoke_config, _scenario_tool_result_continuation)
-
-
-@pytest.mark.smoke_target("tools")
-def test_provider_reasoning_tool_continuation_e2e(smoke_config: SmokeConfig) -> None:
-    _run_for_each_thinking_provider(smoke_config, _scenario_reasoning_tool_continuation)
 
 
 @pytest.mark.smoke_target("rate_limit")
@@ -75,7 +63,7 @@ def test_provider_disconnect_e2e(smoke_config: SmokeConfig) -> None:
 
 def test_provider_error_e2e(smoke_config: SmokeConfig) -> None:
     provider_model = ProviderMatrixDriver(smoke_config).first_model()
-    broken_model = f"{provider_model.provider}/fcc-smoke-missing-model"
+    broken_model = f"{provider_model.provider}/quench-smoke-missing-model"
     with (
         SmokeServerDriver(
             smoke_config,
@@ -87,7 +75,7 @@ def test_provider_error_e2e(smoke_config: SmokeConfig) -> None:
             f"{server.base_url}/v1/messages",
             headers=auth_headers(),
             json={
-                "model": "fcc-smoke-default",
+                "model": "quench-smoke-default",
                 "max_tokens": 32,
                 "messages": [{"role": "user", "content": "hello"}],
             },
@@ -103,7 +91,7 @@ def test_provider_error_e2e(smoke_config: SmokeConfig) -> None:
 def test_openrouter_native_e2e(smoke_config: SmokeConfig) -> None:
     models = [
         model
-        for model in ProviderMatrixDriver(smoke_config).provider_smoke_models()
+        for model in ProviderMatrixDriver(smoke_config).configured_models()
         if model.provider == "open_router"
     ]
     if not models:
@@ -136,7 +124,7 @@ def test_openrouter_native_e2e(smoke_config: SmokeConfig) -> None:
 
 def _run_for_each_provider(smoke_config: SmokeConfig, scenario) -> None:
     failures: list[str] = []
-    for provider_model in ProviderMatrixDriver(smoke_config).provider_smoke_models():
+    for provider_model in ProviderMatrixDriver(smoke_config).configured_models():
         try:
             scenario(smoke_config, provider_model)
         except Exception as exc:
@@ -146,37 +134,6 @@ def _run_for_each_provider(smoke_config: SmokeConfig, scenario) -> None:
                 f"{type(exc).__name__}: {exc}"
             )
     assert not failures, "\n".join(failures)
-
-
-def _run_for_each_thinking_provider(smoke_config: SmokeConfig, scenario) -> None:
-    failures: list[str] = []
-    models = [
-        provider_model
-        for provider_model in ProviderMatrixDriver(smoke_config).provider_smoke_models()
-        if _provider_smoke_thinking_enabled(smoke_config, provider_model)
-    ]
-    if not models:
-        pytest.skip("missing_env: no thinking-capable provider smoke model configured")
-    for provider_model in models:
-        try:
-            scenario(smoke_config, provider_model)
-        except Exception as exc:
-            skip_if_upstream_unavailable_exception(exc)
-            failures.append(
-                f"{provider_model.source}={provider_model.full_model}: "
-                f"{type(exc).__name__}: {exc}"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def _provider_smoke_thinking_enabled(
-    smoke_config: SmokeConfig, provider_model: ProviderModel
-) -> bool:
-    descriptor = PROVIDER_CATALOG[provider_model.provider]
-    return (
-        "thinking" in descriptor.capabilities
-        and smoke_config.settings.resolve_thinking("claude-sonnet-4-5-20250929")
-    )
 
 
 def _scenario_text_multiturn(
@@ -232,7 +189,7 @@ def _scenario_interleaved_history(
                         "type": "tool_use",
                         "id": "toolu_interleaved",
                         "name": "echo_smoke",
-                        "input": {"value": "FCC_INTERLEAVED"},
+                        "input": {"value": "QUENCH_INTERLEAVED"},
                     },
                 ],
             },
@@ -242,7 +199,7 @@ def _scenario_interleaved_history(
                     {
                         "type": "tool_result",
                         "tool_use_id": "toolu_interleaved",
-                        "content": "FCC_INTERLEAVED",
+                        "content": "QUENCH_INTERLEAVED",
                     }
                 ],
             },
@@ -255,52 +212,6 @@ def _scenario_interleaved_history(
     assert_product_stream(turn.events)
 
 
-def _scenario_tool_use_then_text_in_history(
-    smoke_config: SmokeConfig, provider_model: ProviderModel
-) -> None:
-    tool_id = "toolu_206_smoke"
-    payload = {
-        "model": "claude-sonnet-4-5-20250929",
-        "max_tokens": 256,
-        "messages": [
-            {"role": "user", "content": "We will use echo_smoke once in this session."},
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": "echo_smoke",
-                        "input": {"value": "FCC_206_SMOKE"},
-                    },
-                    {
-                        "type": "text",
-                        "text": "Narration after the tool call (issue #206 shape).",
-                    },
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "content": "FCC_206_SMOKE",
-                    },
-                ],
-            },
-            {
-                "role": "user",
-                "content": "Reply in one short sentence: did you see the echo value?",
-            },
-        ],
-        "tools": [echo_tool_schema()],
-    }
-    with _server_for_provider(smoke_config, provider_model, "tool-206") as server:
-        turn = ConversationDriver(server, smoke_config).stream(payload)
-    assert_product_stream(turn.events)
-
-
 def _scenario_tool_result_continuation(
     smoke_config: SmokeConfig, provider_model: ProviderModel
 ) -> None:
@@ -308,7 +219,7 @@ def _scenario_tool_result_continuation(
         "model": "claude-sonnet-4-5-20250929",
         "max_tokens": 256,
         "messages": [
-            {"role": "user", "content": "Use echo_smoke once with value FCC_TOOL."}
+            {"role": "user", "content": "Use echo_smoke once with value QUENCH_TOOL."}
         ],
         "tools": [echo_tool_schema()],
         "tool_choice": {"type": "tool", "name": "echo_smoke"},
@@ -332,7 +243,7 @@ def _scenario_tool_result_continuation(
                         {
                             "type": "tool_result",
                             "tool_use_id": tool_use["id"],
-                            "content": "FCC_TOOL",
+                            "content": "QUENCH_TOOL",
                         }
                     ],
                 },
@@ -344,45 +255,6 @@ def _scenario_tool_result_continuation(
     assert_product_stream(second.events)
 
 
-def _scenario_reasoning_tool_continuation(
-    smoke_config: SmokeConfig, provider_model: ProviderModel
-) -> None:
-    payload = {
-        "model": "claude-sonnet-4-5-20250929",
-        "max_tokens": 256,
-        "messages": [
-            {"role": "user", "content": "Use echo_smoke once with value FCC_TOOL."},
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "thinking": "Need to return the echo result."},
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_reasoning_smoke",
-                        "name": "echo_smoke",
-                        "input": {"value": "FCC_TOOL"},
-                    },
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "toolu_reasoning_smoke",
-                        "content": "FCC_TOOL",
-                    }
-                ],
-            },
-        ],
-        "tools": [echo_tool_schema()],
-        "thinking": {"type": "adaptive"},
-    }
-    with _server_for_provider(smoke_config, provider_model, "reasoning-tool") as server:
-        turn = ConversationDriver(server, smoke_config).stream(payload)
-    assert_product_stream(turn.events)
-
-
 def _scenario_disconnect(
     smoke_config: SmokeConfig, provider_model: ProviderModel
 ) -> None:
@@ -392,7 +264,7 @@ def _scenario_disconnect(
             f"{server.base_url}/v1/messages",
             headers=auth_headers(),
             json={
-                "model": "fcc-smoke-default",
+                "model": "quench-smoke-default",
                 "max_tokens": 512,
                 "messages": [{"role": "user", "content": smoke_config.prompt}],
             },

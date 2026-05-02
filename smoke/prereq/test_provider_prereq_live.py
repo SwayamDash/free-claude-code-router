@@ -8,10 +8,8 @@ import pytest
 from core.anthropic.stream_contracts import (
     assert_anthropic_stream_contract,
     text_content,
-    thinking_content,
 )
 from smoke.lib.config import SmokeConfig, auth_headers
-from smoke.lib.e2e import ProviderMatrixDriver
 from smoke.lib.http import collect_message_stream, message_payload
 from smoke.lib.server import start_server
 from smoke.lib.skips import (
@@ -47,7 +45,9 @@ def test_mixed_provider_model_mapping_when_configured(
 def test_configured_provider_models_stream_successfully(
     smoke_config: SmokeConfig,
 ) -> None:
-    models = ProviderMatrixDriver(smoke_config).provider_smoke_models()
+    models = smoke_config.provider_models()
+    if not models:
+        pytest.skip("no configured provider models with usable credentials/base URLs")
 
     failures: list[str] = []
     for provider_model in models:
@@ -62,16 +62,12 @@ def test_configured_provider_models_stream_successfully(
             ) as server:
                 events = collect_message_stream(
                     server,
-                    message_payload(smoke_config.prompt, model="fcc-smoke-default"),
+                    message_payload(smoke_config.prompt, model="quench-smoke-default"),
                     smoke_config,
                 )
                 skip_if_upstream_unavailable_events(events)
                 assert_anthropic_stream_contract(events)
-                has_text = bool(text_content(events).strip())
-                has_thinking = bool(thinking_content(events).strip())
-                assert has_text or has_thinking, (
-                    "provider returned no visible text or thinking content"
-                )
+                assert text_content(events).strip(), "provider returned no text"
         except Exception as exc:
             skip_if_upstream_unavailable_exception(exc)
             failures.append(
@@ -86,7 +82,10 @@ def test_configured_provider_models_stream_successfully(
 def test_client_disconnect_mid_stream_does_not_crash_server(
     smoke_config: SmokeConfig,
 ) -> None:
-    provider_model = ProviderMatrixDriver(smoke_config).first_model()
+    models = smoke_config.provider_models()
+    if not models:
+        pytest.skip("no configured provider model available for disconnect smoke")
+    provider_model = models[0]
 
     with start_server(
         smoke_config,
@@ -100,7 +99,7 @@ def test_client_disconnect_mid_stream_does_not_crash_server(
             "POST",
             f"{server.base_url}/v1/messages",
             headers=auth_headers(),
-            json=message_payload(smoke_config.prompt, model="fcc-smoke-default"),
+            json=message_payload(smoke_config.prompt, model="quench-smoke-default"),
             timeout=smoke_config.timeout_s,
         ) as response:
             assert response.status_code == 200, response.read()
