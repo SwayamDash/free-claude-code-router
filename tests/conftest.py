@@ -28,6 +28,16 @@ def _isolate_from_dotenv(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_quench_registry():
+    """Clear chain-fallback quench state between tests."""
+    from core.quench import get_registry
+
+    get_registry().clear()
+    yield
+    get_registry().clear()
+
+
 @pytest.fixture
 def provider_config():
     from providers.base import ProviderConfig

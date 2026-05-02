@@ -370,9 +370,7 @@ class ClaudeMessageHandler:
                     cli_session,
                     session_or_temp_id,
                     is_new,
-                ) = await self.cli_manager.get_or_create_session(
-                    session_id=parent_session_id
-                )
+                ) = await self.cli_manager.get_or_create_session(session_id=None)
                 if is_new:
                     temp_session_id = session_or_temp_id
                 else:
